@@ -81,6 +81,9 @@ if (!isBundle) {
 
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.12.0")
 }
 
 // Dedicated configuration to resolve the ORT AAR for the Rust build
