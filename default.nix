@@ -8,6 +8,14 @@ let
 			jdk21_headless
 			sdkmanager
 		];
+
+		shellHook = ''
+			mkdir -p .adh
+			export ANDROID_HOME="$PWD/.adh"
+			export ANDROID_SDK_ROOT="$PWD/.adh"
+			export ANDROID_NDK_HOME="${env}/libexec/android-sdk/ndk/29.0.14206865"
+	  '';
+
 	};
 	
 	env = buildEnv {
