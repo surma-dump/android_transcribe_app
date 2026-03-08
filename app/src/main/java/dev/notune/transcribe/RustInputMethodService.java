@@ -1,20 +1,18 @@
 package dev.notune.transcribe;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.inputmethodservice.InputMethodService;
-import android.view.View;
-import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.ProgressBar;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.content.Context;
-import android.content.pm.PackageManager;
 import android.view.MotionEvent;
-import android.view.inputmethod.EditorInfo;
+import android.view.View;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
 import java.io.File;
 
 public class RustInputMethodService extends InputMethodService {
@@ -31,11 +29,7 @@ public class RustInputMethodService extends InputMethodService {
         }
     }
 
-    private TextView statusView;
-    private TextView hintView;
-    private View recordContainer;
-    private android.widget.ImageView micIcon;
-    private ProgressBar progressBar;
+    private ImageView recordButton;
     private View backspaceButton;
     private View spaceButton;
     private View enterButton;
@@ -78,11 +72,7 @@ public class RustInputMethodService extends InputMethodService {
                 return insets;
             });
 
-            statusView = view.findViewById(R.id.ime_status_text);
-            progressBar = view.findViewById(R.id.ime_progress);
-            recordContainer = view.findViewById(R.id.ime_record_container);
-            micIcon = view.findViewById(R.id.ime_mic_icon);
-            hintView = view.findViewById(R.id.ime_hint);
+            recordButton = view.findViewById(R.id.ime_record);
             backspaceButton = view.findViewById(R.id.ime_backspace);
             spaceButton = view.findViewById(R.id.ime_space);
             enterButton = view.findViewById(R.id.ime_enter);
@@ -103,10 +93,7 @@ public class RustInputMethodService extends InputMethodService {
                 @Override
                 public void run() {
                     InputConnection ic = getCurrentInputConnection();
-                    if (ic != null) {
-                        ic.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL));
-                        ic.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL));
-                    }
+                    BackspaceEditor.performBackspace(ic);
                     mainHandler.postDelayed(this, REPEAT_INTERVAL);
                 }
             };
@@ -127,10 +114,7 @@ public class RustInputMethodService extends InputMethodService {
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         InputConnection ic = getCurrentInputConnection();
-                        if (ic != null) {
-                            ic.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL));
-                            ic.sendKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL));
-                        }
+                        BackspaceEditor.performBackspace(ic);
                         mainHandler.postDelayed(backspaceRepeatRunnable, REPEAT_INITIAL_DELAY);
                         return true;
                     case MotionEvent.ACTION_UP:
@@ -182,14 +166,13 @@ public class RustInputMethodService extends InputMethodService {
                 }
             });
 
-            recordContainer.setOnClickListener(v -> {
-                if (!recordContainer.isEnabled()) return;
+            recordButton.setOnClickListener(v -> {
+                if (!recordButton.isEnabled()) return;
 
                 // Check microphone permission
                 if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                         != PackageManager.PERMISSION_GRANTED) {
-                    if (statusView != null) statusView.setText("No mic permission - grant in app");
-                    if (hintView != null) hintView.setText("Open the app to grant permission");
+                    Toast.makeText(this, "No mic permission - grant in app", Toast.LENGTH_SHORT).show();
                     return;
                 }
 
@@ -256,14 +239,14 @@ public class RustInputMethodService extends InputMethodService {
 
     private void updateRecordButtonUI(boolean recording) {
         isRecording = recording;
+        if (recordButton == null) {
+            return;
+        }
+
         if (recording) {
-            micIcon.setColorFilter(0xFFF44336); // Red
-            statusView.setText("Listening...");
-            hintView.setText("Tap to Stop");
+            recordButton.setColorFilter(0xFFF44336); // Red while recording
         } else {
-            micIcon.setColorFilter(0xFF2196F3); // Blue
-            statusView.setText("Processing...");
-            hintView.setText("Tap to Record");
+            recordButton.setColorFilter(0xFF2196F3); // Blue when idle/processing
         }
     }
 
@@ -302,37 +285,14 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private void updateUiState() {
-        boolean isLoading = lastStatus.contains("Loading") || lastStatus.contains("Initializing");
         boolean isWaiting = lastStatus.contains("Waiting");
-        boolean isTranscribing = lastStatus.contains("Transcribing") || lastStatus.contains("Processing");
-        boolean isError = lastStatus.startsWith("Error");
-        boolean isReady = lastStatus.equals("Ready");
 
-        // Don't show internal loading states to the user
-        if (statusView != null && !isRecording) {
-            if (isError) {
-                statusView.setText(lastStatus);
-            } else if (isTranscribing || isWaiting) {
-                statusView.setText("Processing...");
-            } else {
-                statusView.setText("Tap to Record");
-            }
-        }
-
-        // Hide progress bar - don't expose model loading to user
-        if (progressBar != null) {
-            progressBar.setVisibility(View.GONE);
-        }
-
-        // Disable button only during transcription/processing/waiting or fatal errors
-        if (recordContainer != null) {
-            boolean disable = isTranscribing || isWaiting || isError;
-            recordContainer.setEnabled(!disable);
-            recordContainer.setAlpha(disable ? 0.5f : 1.0f);
-        }
-
-        if (hintView != null && !isRecording) {
-            hintView.setText("Tap to Record");
+        // Keep record button available while previous clips are transcribing.
+        // Only disable during model-loading "Waiting..." states.
+        if (recordButton != null) {
+            boolean disable = isWaiting;
+            recordButton.setEnabled(!disable);
+            recordButton.setAlpha(disable ? 0.5f : 1.0f);
         }
     }
 
@@ -361,7 +321,6 @@ public class RustInputMethodService extends InputMethodService {
                 pauseAudioActive = false;
             }
             updateRecordButtonUI(false);
-            if (statusView != null) statusView.setText("Tap to Record");
             if (pendingSwitchBack) {
                 pendingSwitchBack = false;
                 switchToPreviousInputMethod();

@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    mpsc::{self, Sender},
+    Arc, Mutex,
+};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use jni::objects::{GlobalRef, JObject};
@@ -17,6 +21,8 @@ pub struct VoiceSessionState {
     pub jvm: Arc<jni::JavaVM>,
     pub target_ref: GlobalRef,
     pub last_level_sent: Arc<Mutex<std::time::Instant>>,
+    pub transcription_tx: Sender<Vec<f32>>,
+    pub pending_transcriptions: Arc<AtomicUsize>,
 }
 
 fn notify_status(env: &mut JNIEnv, obj: &JObject, msg: &str) {
@@ -45,6 +51,83 @@ fn notify_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
     }
 }
 
+fn enqueue_status(pending_after_enqueue: usize) -> String {
+    if pending_after_enqueue <= 1 {
+        "Transcribing...".to_string()
+    } else {
+        format!(
+            "Queued for transcription ({} ahead)",
+            pending_after_enqueue - 1
+        )
+    }
+}
+
+fn completion_status(remaining_after_completion: usize) -> String {
+    if remaining_after_completion == 0 {
+        "Ready".to_string()
+    } else {
+        format!("Transcribing... ({} queued)", remaining_after_completion)
+    }
+}
+
+fn spawn_transcription_worker(
+    jvm: Arc<jni::JavaVM>,
+    target_ref: GlobalRef,
+    pending_transcriptions: Arc<AtomicUsize>,
+    transcription_rx: mpsc::Receiver<Vec<f32>>,
+) {
+    std::thread::spawn(move || {
+        for buffer in transcription_rx {
+            let mut env = match jvm.attach_current_thread() {
+                Ok(e) => e,
+                Err(_) => {
+                    pending_transcriptions.fetch_sub(1, Ordering::SeqCst);
+                    continue;
+                }
+            };
+
+            let obj = target_ref.as_obj();
+            let mut had_error = false;
+
+            // Wait for engine if somehow still loading
+            if engine::get_engine().is_none() {
+                if engine::ensure_loaded(&mut env, obj).is_err() {
+                    had_error = true;
+                }
+            }
+
+            if !had_error {
+                if let Some(eng_arc) = engine::get_engine() {
+                    let res = {
+                        let mut eng = eng_arc.lock().unwrap();
+                        eng.transcribe_samples(buffer, None)
+                    };
+
+                    match res {
+                        Ok(r) => notify_text(&mut env, obj, &r.text),
+                        Err(e) => {
+                            had_error = true;
+                            notify_status(&mut env, obj, &format!("Error: {}", e));
+                        }
+                    }
+                } else {
+                    had_error = true;
+                    notify_status(&mut env, obj, "Error: model not loaded");
+                }
+            }
+
+            let previous_pending = pending_transcriptions.fetch_sub(1, Ordering::SeqCst);
+            let remaining = previous_pending.saturating_sub(1);
+
+            if remaining > 0 {
+                notify_status(&mut env, obj, &completion_status(remaining));
+            } else if !had_error {
+                notify_status(&mut env, obj, &completion_status(remaining));
+            }
+        }
+    });
+}
+
 pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
@@ -54,21 +137,33 @@ pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
     let vm_arc = Arc::new(vm);
     let target_ref = env.new_global_ref(&target).expect("Failed to ref target");
 
+    let pending_transcriptions = Arc::new(AtomicUsize::new(0));
+    let (transcription_tx, transcription_rx) = mpsc::channel::<Vec<f32>>();
+
     let state = VoiceSessionState {
         stream: None,
         audio_buffer: Arc::new(Mutex::new(Vec::new())),
         jvm: vm_arc.clone(),
         target_ref: target_ref.clone(),
         last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
+        transcription_tx,
+        pending_transcriptions: pending_transcriptions.clone(),
     };
 
     // Load engine in background
     let vm_clone = vm_arc.clone();
     let target_ref_clone = target_ref.clone();
-
     std::thread::spawn(move || {
         let _ = engine::ensure_loaded_from_thread(&vm_clone, &target_ref_clone);
     });
+
+    // Process queued transcriptions sequentially.
+    spawn_transcription_worker(
+        vm_arc.clone(),
+        target_ref.clone(),
+        pending_transcriptions,
+        transcription_rx,
+    );
 
     state
 }
@@ -160,46 +255,59 @@ pub fn stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         return;
     }
 
-    let jvm = state.jvm.clone();
-    let target_ref = state.target_ref.clone();
+    let pending_after_enqueue = state.pending_transcriptions.fetch_add(1, Ordering::SeqCst) + 1;
+    notify_status(
+        &mut env,
+        state.target_ref.as_obj(),
+        &enqueue_status(pending_after_enqueue),
+    );
 
-    notify_status(&mut env, target_ref.as_obj(), "Transcribing...");
-
-    std::thread::spawn(move || {
-        let mut env = match jvm.attach_current_thread() {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        let obj = target_ref.as_obj();
-
-        // Wait for engine if somehow still loading
-        if engine::get_engine().is_none() {
-            if let Err(_) = engine::ensure_loaded(&mut env, obj) {
-                return;
-            }
+    if state.transcription_tx.send(buffer).is_err() {
+        let previous_pending = state.pending_transcriptions.fetch_sub(1, Ordering::SeqCst);
+        let remaining = previous_pending.saturating_sub(1);
+        notify_status(
+            &mut env,
+            state.target_ref.as_obj(),
+            "Error: transcription queue unavailable",
+        );
+        if remaining > 0 {
+            notify_status(
+                &mut env,
+                state.target_ref.as_obj(),
+                &completion_status(remaining),
+            );
         }
-
-        if let Some(eng_arc) = engine::get_engine() {
-            let res = {
-                let mut eng = eng_arc.lock().unwrap();
-                eng.transcribe_samples(buffer, None)
-            };
-
-            match res {
-                Ok(r) => {
-                    notify_status(&mut env, obj, "Ready");
-                    notify_text(&mut env, obj, &r.text);
-                }
-                Err(e) => notify_status(&mut env, obj, &format!("Error: {}", e)),
-            }
-        } else {
-            notify_status(&mut env, obj, "Error: model not loaded");
-        }
-    });
+    }
 }
 
 pub fn cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     state.stream = None;
     state.audio_buffer.lock().unwrap().clear();
     notify_status(&mut env, state.target_ref.as_obj(), "Canceled");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{completion_status, enqueue_status};
+
+    #[test]
+    fn enqueue_status_reports_transcribing_for_first_job() {
+        assert_eq!(enqueue_status(1), "Transcribing...");
+    }
+
+    #[test]
+    fn enqueue_status_reports_queue_depth_for_later_jobs() {
+        assert_eq!(enqueue_status(2), "Queued for transcription (1 ahead)");
+        assert_eq!(enqueue_status(4), "Queued for transcription (3 ahead)");
+    }
+
+    #[test]
+    fn completion_status_reports_ready_when_queue_drains() {
+        assert_eq!(completion_status(0), "Ready");
+    }
+
+    #[test]
+    fn completion_status_reports_remaining_queue() {
+        assert_eq!(completion_status(2), "Transcribing... (2 queued)");
+    }
 }
