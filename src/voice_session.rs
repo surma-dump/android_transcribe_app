@@ -15,14 +15,43 @@ pub struct SendStream(#[allow(dead_code)] pub cpal::Stream);
 unsafe impl Send for SendStream {}
 unsafe impl Sync for SendStream {}
 
+#[derive(Clone, Copy, Debug)]
+pub struct VoiceSessionConfig {
+    pub stream_results: bool,
+    pub stream_chunk_samples: usize,
+}
+
+impl VoiceSessionConfig {
+    pub fn ime_default() -> Self {
+        Self {
+            stream_results: true,
+            stream_chunk_samples: 4 * 16_000,
+        }
+    }
+
+    pub fn recognize_default() -> Self {
+        Self {
+            stream_results: false,
+            stream_chunk_samples: 4 * 16_000,
+        }
+    }
+}
+
+struct TranscriptionTask {
+    samples: Vec<f32>,
+    stream_results: bool,
+    stream_chunk_samples: usize,
+}
+
 pub struct VoiceSessionState {
-    pub stream: Option<SendStream>,
-    pub audio_buffer: Arc<Mutex<Vec<f32>>>,
-    pub jvm: Arc<jni::JavaVM>,
-    pub target_ref: GlobalRef,
-    pub last_level_sent: Arc<Mutex<std::time::Instant>>,
-    pub transcription_tx: Sender<Vec<f32>>,
-    pub pending_transcriptions: Arc<AtomicUsize>,
+    stream: Option<SendStream>,
+    audio_buffer: Arc<Mutex<Vec<f32>>>,
+    jvm: Arc<jni::JavaVM>,
+    target_ref: GlobalRef,
+    last_level_sent: Arc<Mutex<std::time::Instant>>,
+    transcription_tx: Sender<TranscriptionTask>,
+    pending_transcriptions: Arc<AtomicUsize>,
+    config: VoiceSessionConfig,
 }
 
 fn notify_status(env: &mut JNIEnv, obj: &JObject, msg: &str) {
@@ -70,14 +99,39 @@ fn completion_status(remaining_after_completion: usize) -> String {
     }
 }
 
+fn split_streaming_ranges(total_samples: usize, chunk_samples: usize) -> Vec<(usize, usize)> {
+    if total_samples == 0 || chunk_samples == 0 {
+        return Vec::new();
+    }
+
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    while start < total_samples {
+        let end = (start + chunk_samples).min(total_samples);
+        ranges.push((start, end));
+        start = end;
+    }
+
+    ranges
+}
+
+fn streaming_progress_status(processed_chunks: usize, total_chunks: usize) -> String {
+    let percent = if total_chunks == 0 {
+        0
+    } else {
+        ((processed_chunks * 100) / total_chunks).min(100)
+    };
+    format!("Transcribing... {}%", percent)
+}
+
 fn spawn_transcription_worker(
     jvm: Arc<jni::JavaVM>,
     target_ref: GlobalRef,
     pending_transcriptions: Arc<AtomicUsize>,
-    transcription_rx: mpsc::Receiver<Vec<f32>>,
+    transcription_rx: mpsc::Receiver<TranscriptionTask>,
 ) {
     std::thread::spawn(move || {
-        for buffer in transcription_rx {
+        for task in transcription_rx {
             let mut env = match jvm.attach_current_thread() {
                 Ok(e) => e,
                 Err(_) => {
@@ -98,16 +152,57 @@ fn spawn_transcription_worker(
 
             if !had_error {
                 if let Some(eng_arc) = engine::get_engine() {
-                    let res = {
-                        let mut eng = eng_arc.lock().unwrap();
-                        eng.transcribe_samples(buffer, None)
-                    };
-
-                    match res {
-                        Ok(r) => notify_text(&mut env, obj, &r.text),
-                        Err(e) => {
+                    if task.stream_results {
+                        let ranges =
+                            split_streaming_ranges(task.samples.len(), task.stream_chunk_samples);
+                        if ranges.is_empty() {
                             had_error = true;
-                            notify_status(&mut env, obj, &format!("Error: {}", e));
+                            notify_status(&mut env, obj, "Error: no audio data to transcribe");
+                        } else {
+                            notify_status(
+                                &mut env,
+                                obj,
+                                &streaming_progress_status(0, ranges.len()),
+                            );
+                            for (index, (start, end)) in ranges.iter().enumerate() {
+                                let chunk = task.samples[*start..*end].to_vec();
+                                let res = {
+                                    let mut eng = eng_arc.lock().unwrap();
+                                    eng.transcribe_samples(chunk, None)
+                                };
+
+                                match res {
+                                    Ok(r) => {
+                                        let text = r.text.trim();
+                                        if !text.is_empty() {
+                                            notify_text(&mut env, obj, text);
+                                        }
+                                        notify_status(
+                                            &mut env,
+                                            obj,
+                                            &streaming_progress_status(index + 1, ranges.len()),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        had_error = true;
+                                        notify_status(&mut env, obj, &format!("Error: {}", e));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let res = {
+                            let mut eng = eng_arc.lock().unwrap();
+                            eng.transcribe_samples(task.samples, None)
+                        };
+
+                        match res {
+                            Ok(r) => notify_text(&mut env, obj, &r.text),
+                            Err(e) => {
+                                had_error = true;
+                                notify_status(&mut env, obj, &format!("Error: {}", e));
+                            }
                         }
                     }
                 } else {
@@ -128,7 +223,7 @@ fn spawn_transcription_worker(
     });
 }
 
-pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
+pub fn init_session(env: JNIEnv, target: JObject, config: VoiceSessionConfig) -> VoiceSessionState {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
@@ -138,7 +233,7 @@ pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
     let target_ref = env.new_global_ref(&target).expect("Failed to ref target");
 
     let pending_transcriptions = Arc::new(AtomicUsize::new(0));
-    let (transcription_tx, transcription_rx) = mpsc::channel::<Vec<f32>>();
+    let (transcription_tx, transcription_rx) = mpsc::channel::<TranscriptionTask>();
 
     let state = VoiceSessionState {
         stream: None,
@@ -148,6 +243,7 @@ pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
         last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
         transcription_tx,
         pending_transcriptions: pending_transcriptions.clone(),
+        config,
     };
 
     // Load engine in background
@@ -256,13 +352,27 @@ pub fn stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     }
 
     let pending_after_enqueue = state.pending_transcriptions.fetch_add(1, Ordering::SeqCst) + 1;
-    notify_status(
-        &mut env,
-        state.target_ref.as_obj(),
-        &enqueue_status(pending_after_enqueue),
-    );
+    if pending_after_enqueue <= 1 && state.config.stream_results {
+        notify_status(
+            &mut env,
+            state.target_ref.as_obj(),
+            &streaming_progress_status(0, 1),
+        );
+    } else {
+        notify_status(
+            &mut env,
+            state.target_ref.as_obj(),
+            &enqueue_status(pending_after_enqueue),
+        );
+    }
 
-    if state.transcription_tx.send(buffer).is_err() {
+    let task = TranscriptionTask {
+        samples: buffer,
+        stream_results: state.config.stream_results,
+        stream_chunk_samples: state.config.stream_chunk_samples,
+    };
+
+    if state.transcription_tx.send(task).is_err() {
         let previous_pending = state.pending_transcriptions.fetch_sub(1, Ordering::SeqCst);
         let remaining = previous_pending.saturating_sub(1);
         notify_status(
@@ -288,7 +398,9 @@ pub fn cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{completion_status, enqueue_status};
+    use super::{
+        completion_status, enqueue_status, split_streaming_ranges, streaming_progress_status,
+    };
 
     #[test]
     fn enqueue_status_reports_transcribing_for_first_job() {
@@ -309,5 +421,22 @@ mod tests {
     #[test]
     fn completion_status_reports_remaining_queue() {
         assert_eq!(completion_status(2), "Transcribing... (2 queued)");
+    }
+
+    #[test]
+    fn split_streaming_ranges_partitions_audio_into_fixed_chunks() {
+        assert_eq!(split_streaming_ranges(10, 4), vec![(0, 4), (4, 8), (8, 10)]);
+    }
+
+    #[test]
+    fn split_streaming_ranges_handles_empty_audio() {
+        assert!(split_streaming_ranges(0, 4).is_empty());
+    }
+
+    #[test]
+    fn streaming_progress_status_reports_percentage() {
+        assert_eq!(streaming_progress_status(0, 3), "Transcribing... 0%");
+        assert_eq!(streaming_progress_status(1, 3), "Transcribing... 33%");
+        assert_eq!(streaming_progress_status(3, 3), "Transcribing... 100%");
     }
 }

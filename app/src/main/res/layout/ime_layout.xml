@@ -51,7 +51,7 @@
                 android:layout_weight="1"
                 android:src="@android:drawable/ic_btn_speak_now"
                 android:scaleType="centerInside"
-                android:background="@drawable/bg_backspace"
+                android:background="@drawable/bg_record_progress"
                 android:clickable="true"
                 android:focusable="true"
                 android:tint="@color/colorPrimary"

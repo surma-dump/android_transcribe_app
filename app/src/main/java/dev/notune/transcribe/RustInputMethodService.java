@@ -3,6 +3,8 @@ package dev.notune.transcribe;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.inputmethodservice.InputMethodService;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -45,6 +47,8 @@ public class RustInputMethodService extends InputMethodService {
     private Runnable spaceRepeatRunnable;
     private final AudioFocusPauser audioPauser = new AudioFocusPauser();
     private boolean pauseAudioActive = false;
+    private LayerDrawable recordButtonBackground;
+    private int transcribeProgressPercent = -1;
 
     @Override
     public void onCreate() {
@@ -73,6 +77,12 @@ public class RustInputMethodService extends InputMethodService {
             });
 
             recordButton = view.findViewById(R.id.ime_record);
+            Drawable background = recordButton.getBackground();
+            if (background instanceof LayerDrawable) {
+                recordButtonBackground = (LayerDrawable) background.mutate();
+            } else {
+                recordButtonBackground = null;
+            }
             backspaceButton = view.findViewById(R.id.ime_backspace);
             spaceButton = view.findViewById(R.id.ime_space);
             enterButton = view.findViewById(R.id.ime_enter);
@@ -82,6 +92,11 @@ public class RustInputMethodService extends InputMethodService {
                 if (isRecording) {
                     pendingSwitchBack = true;
                     stopRecording();
+                    if (pauseAudioActive) {
+                        audioPauser.abandon(this);
+                        pauseAudioActive = false;
+                    }
+                    transcribeProgressPercent = 0;
                     updateRecordButtonUI(false);
                 } else {
                     switchToPreviousInputMethod();
@@ -182,8 +197,10 @@ public class RustInputMethodService extends InputMethodService {
                         audioPauser.abandon(this);
                         pauseAudioActive = false;
                     }
+                    transcribeProgressPercent = 0;
                     updateRecordButtonUI(false);
                 } else {
+                    transcribeProgressPercent = -1;
                     if (isPauseAudioEnabled()) {
                         audioPauser.request(this);
                         pauseAudioActive = true;
@@ -213,6 +230,7 @@ public class RustInputMethodService extends InputMethodService {
                     audioPauser.request(this);
                     pauseAudioActive = true;
                 }
+                transcribeProgressPercent = -1;
                 startRecording();
                 updateRecordButtonUI(true);
             }
@@ -229,6 +247,7 @@ public class RustInputMethodService extends InputMethodService {
                 Log.w(TAG, "cancelRecording failed, falling back to stopRecording", t);
                 try { stopRecording(); } catch (Throwable ignored) { }
             }
+            transcribeProgressPercent = -1;
             updateRecordButtonUI(false);
         }
         if (pauseAudioActive) {
@@ -248,6 +267,22 @@ public class RustInputMethodService extends InputMethodService {
         } else {
             recordButton.setColorFilter(0xFF2196F3); // Blue when idle/processing
         }
+
+        updateRecordButtonProgress();
+    }
+
+    private void updateRecordButtonProgress() {
+        if (recordButtonBackground == null) {
+            return;
+        }
+
+        Drawable progressDrawable = recordButtonBackground.findDrawableByLayerId(android.R.id.progress);
+        if (progressDrawable == null) {
+            return;
+        }
+
+        int visiblePercent = (!isRecording && transcribeProgressPercent >= 0) ? transcribeProgressPercent : 0;
+        progressDrawable.setLevel(visiblePercent * 100);
     }
 
     @Override
@@ -272,8 +307,20 @@ public class RustInputMethodService extends InputMethodService {
         mainHandler.post(() -> {
             Log.d(TAG, "Status: " + status);
             lastStatus = status;
+
+            int parsedPercent = ImeProgressStatusParser.parseProgressPercent(status);
+            if (parsedPercent >= 0) {
+                transcribeProgressPercent = parsedPercent;
+            } else if (status != null && (status.startsWith("Queued") || status.startsWith("Transcribing"))) {
+                transcribeProgressPercent = 0;
+            } else if (status == null || status.startsWith("Ready") || status.startsWith("Listening")
+                    || status.startsWith("Canceled") || status.startsWith("Error")) {
+                transcribeProgressPercent = -1;
+            }
+
             updateUiState();
-            if (pendingSwitchBack && status.startsWith("Error")) {
+
+            if (pendingSwitchBack && status != null && (status.startsWith("Ready") || status.startsWith("Error"))) {
                 pendingSwitchBack = false;
                 switchToPreviousInputMethod();
             }
@@ -294,6 +341,8 @@ public class RustInputMethodService extends InputMethodService {
             recordButton.setEnabled(!disable);
             recordButton.setAlpha(disable ? 0.5f : 1.0f);
         }
+
+        updateRecordButtonProgress();
     }
 
     // Called from Rust
@@ -315,15 +364,6 @@ public class RustInputMethodService extends InputMethodService {
                         }
                     }
                 }
-            }
-            if (pauseAudioActive) {
-                audioPauser.abandon(this);
-                pauseAudioActive = false;
-            }
-            updateRecordButtonUI(false);
-            if (pendingSwitchBack) {
-                pendingSwitchBack = false;
-                switchToPreviousInputMethod();
             }
         });
     }

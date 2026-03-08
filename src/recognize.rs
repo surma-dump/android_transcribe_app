@@ -14,7 +14,11 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_initN
     _class: JClass,
     activity: JObject,
 ) {
-    let state = voice_session::init_session(env, activity);
+    let state = voice_session::init_session(
+        env,
+        activity,
+        voice_session::VoiceSessionConfig::recognize_default(),
+    );
     *RECOG_STATE.lock().unwrap() = Some(state);
 }
 

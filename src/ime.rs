@@ -13,7 +13,11 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RustInputMethodService_
     _class: JClass,
     service: JObject,
 ) {
-    let state = voice_session::init_session(env, service);
+    let state = voice_session::init_session(
+        env,
+        service,
+        voice_session::VoiceSessionConfig::ime_default(),
+    );
     *IME_STATE.lock().unwrap() = Some(state);
 }
 
