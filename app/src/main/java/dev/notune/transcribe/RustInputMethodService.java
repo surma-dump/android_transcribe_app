@@ -1,6 +1,5 @@
 package dev.notune.transcribe;
 
-import android.content.Context;
 import android.content.pm.PackageManager;
 import android.inputmethodservice.InputMethodService;
 import android.graphics.drawable.Drawable;
@@ -8,10 +7,12 @@ import android.graphics.drawable.LayerDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.HapticFeedbackConstants;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -43,9 +44,13 @@ public class RustInputMethodService extends InputMethodService {
     // Key repeat settings
     private static final long REPEAT_INITIAL_DELAY = 400; // ms before repeat starts
     private static final long REPEAT_INTERVAL = 50; // ms between repeats
+    private static final float SPACE_CURSOR_STEP_DP = 16f;
     private Runnable backspaceRepeatRunnable;
-    private Runnable spaceRepeatRunnable;
+    private Runnable spaceCursorLongPressRunnable;
     private final AudioFocusPauser audioPauser = new AudioFocusPauser();
+    private SpacebarCursorStepper spacebarCursorStepper;
+    private boolean isSpaceCursorDragActive = false;
+    private float lastSpaceTouchRawX = 0f;
     private boolean pauseAudioActive = false;
     private LayerDrawable recordButtonBackground;
     private int transcribeProgressPercent = -1;
@@ -87,6 +92,8 @@ public class RustInputMethodService extends InputMethodService {
             spaceButton = view.findViewById(R.id.ime_space);
             enterButton = view.findViewById(R.id.ime_enter);
             switchKeyboardButton = view.findViewById(R.id.ime_switch_keyboard);
+            float cursorStepPx = SPACE_CURSOR_STEP_DP * getResources().getDisplayMetrics().density;
+            spacebarCursorStepper = new SpacebarCursorStepper(cursorStepPx);
 
             switchKeyboardButton.setOnClickListener(v -> {
                 if (isRecording) {
@@ -113,15 +120,13 @@ public class RustInputMethodService extends InputMethodService {
                 }
             };
 
-            // Key repeat runnable for space
-            spaceRepeatRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    InputConnection ic = getCurrentInputConnection();
-                    if (ic != null) {
-                        ic.commitText(" ", 1);
-                    }
-                    mainHandler.postDelayed(this, REPEAT_INTERVAL);
+            spaceCursorLongPressRunnable = () -> {
+                isSpaceCursorDragActive = true;
+                if (spacebarCursorStepper != null) {
+                    spacebarCursorStepper.start(lastSpaceTouchRawX);
+                }
+                if (spaceButton != null) {
+                    spaceButton.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 }
             };
 
@@ -143,15 +148,29 @@ public class RustInputMethodService extends InputMethodService {
             spaceButton.setOnTouchListener((v, event) -> {
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
-                        InputConnection ic = getCurrentInputConnection();
-                        if (ic != null) {
-                            ic.commitText(" ", 1);
+                        lastSpaceTouchRawX = event.getRawX();
+                        isSpaceCursorDragActive = false;
+                        if (spacebarCursorStepper != null) {
+                            spacebarCursorStepper.reset();
                         }
-                        mainHandler.postDelayed(spaceRepeatRunnable, REPEAT_INITIAL_DELAY);
+                        mainHandler.postDelayed(
+                                spaceCursorLongPressRunnable,
+                                ViewConfiguration.getLongPressTimeout());
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        lastSpaceTouchRawX = event.getRawX();
+                        if (!isSpaceCursorDragActive || spacebarCursorStepper == null) {
+                            return true;
+                        }
+
+                        int steps = spacebarCursorStepper.moveTo(lastSpaceTouchRawX);
+                        moveCursorBySteps(steps);
                         return true;
                     case MotionEvent.ACTION_UP:
+                        finishSpaceTouch(!isSpaceCursorDragActive);
+                        return true;
                     case MotionEvent.ACTION_CANCEL:
-                        mainHandler.removeCallbacks(spaceRepeatRunnable);
+                        finishSpaceTouch(false);
                         return true;
                 }
                 return false;
@@ -240,6 +259,7 @@ public class RustInputMethodService extends InputMethodService {
     @Override
     public void onWindowHidden() {
         super.onWindowHidden();
+        finishSpaceTouch(false);
         if (isRecording) {
             try {
                 cancelRecording();
@@ -283,6 +303,43 @@ public class RustInputMethodService extends InputMethodService {
 
         int visiblePercent = (!isRecording && transcribeProgressPercent >= 0) ? transcribeProgressPercent : 0;
         progressDrawable.setLevel(visiblePercent * 100);
+    }
+
+    private void finishSpaceTouch(boolean shouldCommitSpace) {
+        if (spaceCursorLongPressRunnable != null) {
+            mainHandler.removeCallbacks(spaceCursorLongPressRunnable);
+        }
+
+        if (shouldCommitSpace) {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) {
+                ic.commitText(" ", 1);
+            }
+        }
+
+        if (spacebarCursorStepper != null) {
+            spacebarCursorStepper.reset();
+        }
+        isSpaceCursorDragActive = false;
+    }
+
+    private void moveCursorBySteps(int steps) {
+        if (steps == 0) {
+            return;
+        }
+
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) {
+            return;
+        }
+
+        int keyCode = steps > 0 ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_LEFT;
+        int keyCount = Math.abs(steps);
+
+        for (int i = 0; i < keyCount; i++) {
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
+        }
     }
 
     @Override
