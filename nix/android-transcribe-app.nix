@@ -7,6 +7,8 @@
   gradle,
   jdk21_headless,
   mkShell,
+  writeShellScriptBin,
+  jq,
   sdkmanager,
   androidenv,
   unzip,
@@ -215,6 +217,17 @@ let
           data = ./gradle-deps.json;
         };
       };
+
+  gradleDepsUpdateScript = writeShellScriptBin "update-gradle-deps" ''
+    set -euo pipefail
+
+    ${apkAndDeps.gradleDeps.passthru.updateScript}
+
+    deps_file="nix/gradle-deps.json"
+    tmp_file="$(mktemp)"
+    ${jq}/bin/jq 'del(.["https://maven.google.com"])' "$deps_file" > "$tmp_file"
+    mv "$tmp_file" "$deps_file"
+  '';
 in
 {
   inherit (apkAndDeps)
@@ -226,7 +239,7 @@ in
     modelAssets
     ;
 
-  gradleDepsUpdateScript = apkAndDeps.gradleDeps.passthru.updateScript;
+  inherit gradleDepsUpdateScript;
 
   shell = mkShell {
     packages = [

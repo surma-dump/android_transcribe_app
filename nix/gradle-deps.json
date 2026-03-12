@@ -238,11 +238,6 @@
    "gz": "sha256-YrH9hPDE13VR5OlizFjUOg9u7NHmok6HYoF12jWMI04="
   }
  },
- "https://maven.google.com": {
-  "master-index": {
-   "xml": "sha256-+Wns0UwQMf+pgkgVtxfl/9+telNOxWg6W3pVov8rfBk="
-  }
- },
  "https://repo.maven.apache.org/maven2": {
   "com/google/android#annotations/4.1.1.4": {
    "jar": "sha256-unNOHoTAnWFa9qCdMwNLTwRC+Hct7BIO+zdthqVlrhU=",

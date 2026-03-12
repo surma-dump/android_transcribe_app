@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="Offline Voice Input"
+        android:label="Parkeeboard"
         android:icon="@drawable/icon"
         android:hasCode="true">
 
@@ -81,7 +81,7 @@
         <!-- IME Service -->
         <service
             android:name=".RustInputMethodService"
-            android:label="Offline Voice Input"
+            android:label="Parakeeboard"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:process=":ime"
             android:exported="true">
