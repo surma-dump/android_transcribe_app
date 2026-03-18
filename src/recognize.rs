@@ -9,7 +9,7 @@ use crate::voice_session::{self, VoiceSessionState};
 static RECOG_STATE: Lazy<Mutex<Option<VoiceSessionState>>> = Lazy::new(|| Mutex::new(None));
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_initNative(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_RecognizeActivity_initNative(
     env: JNIEnv,
     _class: JClass,
     activity: JObject,
@@ -23,7 +23,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_initN
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_cleanupNative(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_RecognizeActivity_cleanupNative(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -31,7 +31,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_clean
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_startRecording(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_RecognizeActivity_startRecording(
     env: JNIEnv,
     _class: JClass,
 ) {
@@ -42,7 +42,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_start
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_stopRecording(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_RecognizeActivity_stopRecording(
     env: JNIEnv,
     _class: JClass,
 ) {
@@ -53,7 +53,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_stopR
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_cancelRecording(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_RecognizeActivity_cancelRecording(
     env: JNIEnv,
     _class: JClass,
 ) {

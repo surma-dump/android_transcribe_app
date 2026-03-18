@@ -26,11 +26,11 @@ val releaseKeyPassword = if (usingUserReleaseKeystore) {
 val releaseSigningKeystore = if (usingUserReleaseKeystore) userReleaseKeystore else fallbackReleaseKeystore
 
 android {
-    namespace = "dev.notune.transcribe"
+    namespace = "dev.surma.parakeeb"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.notune.transcribe"
+        applicationId = "dev.surma.parakeeb"
         minSdk = 26
         targetSdk = 35
         versionCode = 15

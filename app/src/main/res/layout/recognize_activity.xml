@@ -23,7 +23,7 @@
         android:layout_height="match_parent"
         android:layout_gravity="center">
 
-        <dev.notune.transcribe.MicLevelView
+        <dev.surma.parakeeb.MicLevelView
             android:id="@+id/mic_level"
             android:layout_width="220dp"
             android:layout_height="220dp"

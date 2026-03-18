@@ -1,4 +1,4 @@
-package dev.notune.transcribe;
+package dev.surma.parakeeb;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;

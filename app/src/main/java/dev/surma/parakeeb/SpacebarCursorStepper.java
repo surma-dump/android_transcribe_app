@@ -1,4 +1,4 @@
-package dev.notune.transcribe;
+package dev.surma.parakeeb;
 
 final class SpacebarCursorStepper {
     private final float pixelsPerStep;

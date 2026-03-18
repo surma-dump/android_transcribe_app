@@ -4,7 +4,7 @@ use jni::JNIEnv;
 use std::sync::Arc;
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_MainActivity_initNative(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_MainActivity_initNative(
     env: JNIEnv,
     _class: JClass,
     activity: JObject,

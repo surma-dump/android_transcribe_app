@@ -20,7 +20,7 @@ struct LiveSubtitleState {
 static LIVE_STATE: Lazy<Mutex<Option<LiveSubtitleState>>> = Lazy::new(|| Mutex::new(None));
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_initNative(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_LiveSubtitleService_initNative(
     env: JNIEnv,
     _class: JClass,
     service: JObject,
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_cleanupNative(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_LiveSubtitleService_cleanupNative(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -123,7 +123,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_cle
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_setUpdateInterval(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_LiveSubtitleService_setUpdateInterval(
     _env: JNIEnv,
     _class: JClass,
     interval_seconds: jfloat,
@@ -135,7 +135,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_set
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pushAudio(
+pub unsafe extern "system" fn Java_dev_surma_parakeeb_LiveSubtitleService_pushAudio(
     env: JNIEnv,
     _class: JClass,
     data: jni::objects::JFloatArray,

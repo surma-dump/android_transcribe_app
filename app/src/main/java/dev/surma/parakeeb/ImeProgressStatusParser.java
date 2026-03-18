@@ -1,4 +1,4 @@
-package dev.notune.transcribe;
+package dev.surma.parakeeb;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

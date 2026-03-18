@@ -1,4 +1,4 @@
-package dev.notune.transcribe;
+package dev.surma.parakeeb;
 
 import android.content.Context;
 import android.media.AudioFocusRequest;
