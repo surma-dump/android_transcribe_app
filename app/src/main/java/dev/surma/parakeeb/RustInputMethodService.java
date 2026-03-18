@@ -213,35 +213,7 @@ public class RustInputMethodService extends InputMethodService {
                 }
             });
 
-            recordButton.setOnClickListener(v -> {
-                if (!recordButton.isEnabled()) {
-                    return;
-                }
-
-                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, "No mic permission - grant in app", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                if (isRecording) {
-                    stopRecording();
-                    if (pauseAudioActive) {
-                        audioPauser.abandon(this);
-                        pauseAudioActive = false;
-                    }
-                    transcribeProgressPercent = 0;
-                    updateRecordButtonUI(false);
-                } else {
-                    transcribeProgressPercent = -1;
-                    if (isPauseAudioEnabled()) {
-                        audioPauser.request(this);
-                        pauseAudioActive = true;
-                    }
-                    startRecording();
-                    updateRecordButtonUI(true);
-                }
-            });
+            recordButton.setOnClickListener(v -> toggleRecordingFromImeTrigger());
 
             updateUiState();
             updateRewriteButtonUi();
@@ -294,6 +266,66 @@ public class RustInputMethodService extends InputMethodService {
             audioPauser.abandon(this);
             pauseAudioActive = false;
         }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        boolean imeShown = isInputViewShown();
+        int repeatCount = event == null ? 0 : event.getRepeatCount();
+        if (ImeVolumeKeyHandler.shouldToggleRecordingOnKeyDown(imeShown, keyCode, repeatCount)) {
+            toggleRecordingFromImeTrigger();
+            return true;
+        }
+        if (ImeVolumeKeyHandler.shouldConsumeKeyDown(imeShown, keyCode)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (ImeVolumeKeyHandler.shouldConsumeKeyUp(isInputViewShown(), keyCode)) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    private void toggleRecordingFromImeTrigger() {
+        if (recordButton != null && !recordButton.isEnabled()) {
+            return;
+        }
+
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "No mic permission - grant in app", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (isRecording) {
+            stopActiveRecording();
+        } else {
+            startActiveRecording();
+        }
+    }
+
+    private void startActiveRecording() {
+        transcribeProgressPercent = -1;
+        if (isPauseAudioEnabled()) {
+            audioPauser.request(this);
+            pauseAudioActive = true;
+        }
+        startRecording();
+        updateRecordButtonUI(true);
+    }
+
+    private void stopActiveRecording() {
+        stopRecording();
+        if (pauseAudioActive) {
+            audioPauser.abandon(this);
+            pauseAudioActive = false;
+        }
+        transcribeProgressPercent = 0;
+        updateRecordButtonUI(false);
     }
 
     private void updateRecordButtonUI(boolean recording) {
