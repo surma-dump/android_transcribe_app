@@ -99,11 +99,11 @@ public class RustInputMethodService extends InputMethodService {
         Log.d(TAG, "onCreateInputView");
         try {
             View view = getLayoutInflater().inflate(R.layout.ime_layout, null);
+            int basePaddingBottom = view.getPaddingBottom();
 
             view.setOnApplyWindowInsetsListener((v, insets) -> {
                 int paddingBottom = insets.getSystemWindowInsetBottom();
-                int originalPaddingBottom = v.getPaddingBottom();
-                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), originalPaddingBottom + paddingBottom);
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), basePaddingBottom + paddingBottom);
                 return insets;
             });
 
