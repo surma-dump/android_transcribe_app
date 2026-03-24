@@ -23,15 +23,9 @@ public class ImeVolumeKeyHandlerTest {
     }
 
     @Test
-    public void volumeDownLongPressWhileImeShown_triggersSend() {
-        assertTrue(ImeVolumeKeyHandler.shouldTriggerSendOnLongPress(true, KeyEvent.KEYCODE_VOLUME_DOWN));
-    }
-
-    @Test
-    public void volumeDownKeyUpWhileImeShown_togglesRecordingUnlessLongPressHandled() {
+    public void volumeDownKeyUpWhileImeShown_isResolvedAndConsumed() {
         assertTrue(ImeVolumeKeyHandler.shouldConsumeKeyUp(true, KeyEvent.KEYCODE_VOLUME_DOWN));
-        assertTrue(ImeVolumeKeyHandler.shouldToggleRecordingOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_DOWN, false));
-        assertFalse(ImeVolumeKeyHandler.shouldToggleRecordingOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_DOWN, true));
+        assertTrue(ImeVolumeKeyHandler.shouldResolveVolumeDownOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_DOWN));
     }
 
     @Test
@@ -48,29 +42,28 @@ public class ImeVolumeKeyHandlerTest {
     }
 
     @Test
-    public void volumeUpLongPressWhileImeShown_triggersUndo() {
-        assertTrue(ImeVolumeKeyHandler.shouldTriggerUndoOnLongPress(true, KeyEvent.KEYCODE_VOLUME_UP));
+    public void volumeUpLongPressWhileImeShown_triggersSelectAll() {
+        assertTrue(ImeVolumeKeyHandler.shouldTriggerSelectAllOnLongPress(true, KeyEvent.KEYCODE_VOLUME_UP));
     }
 
     @Test
-    public void volumeUpKeyUpWhileImeShown_triggersRewriteUnlessLongPressHandled() {
+    public void volumeUpKeyUpWhileImeShown_isResolvedUnlessLongPressHandled() {
         assertTrue(ImeVolumeKeyHandler.shouldConsumeKeyUp(true, KeyEvent.KEYCODE_VOLUME_UP));
-        assertTrue(ImeVolumeKeyHandler.shouldTriggerRewriteOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_UP, false));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerRewriteOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_UP, true));
+        assertTrue(ImeVolumeKeyHandler.shouldResolveVolumeUpOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_UP, false));
+        assertFalse(ImeVolumeKeyHandler.shouldResolveVolumeUpOnKeyUp(true, KeyEvent.KEYCODE_VOLUME_UP, true));
     }
 
     @Test
     public void volumeKeysWhileImeHidden_areIgnored() {
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyDown(false, KeyEvent.KEYCODE_VOLUME_DOWN));
         assertFalse(ImeVolumeKeyHandler.shouldTrackVolumeDownOnKeyDown(false, KeyEvent.KEYCODE_VOLUME_DOWN, 0));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerSendOnLongPress(false, KeyEvent.KEYCODE_VOLUME_DOWN));
-        assertFalse(ImeVolumeKeyHandler.shouldToggleRecordingOnKeyUp(false, KeyEvent.KEYCODE_VOLUME_DOWN, false));
+        assertFalse(ImeVolumeKeyHandler.shouldResolveVolumeDownOnKeyUp(false, KeyEvent.KEYCODE_VOLUME_DOWN));
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyUp(false, KeyEvent.KEYCODE_VOLUME_DOWN));
 
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyDown(false, KeyEvent.KEYCODE_VOLUME_UP));
         assertFalse(ImeVolumeKeyHandler.shouldTrackVolumeUpOnKeyDown(false, KeyEvent.KEYCODE_VOLUME_UP, 0));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerUndoOnLongPress(false, KeyEvent.KEYCODE_VOLUME_UP));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerRewriteOnKeyUp(false, KeyEvent.KEYCODE_VOLUME_UP, false));
+        assertFalse(ImeVolumeKeyHandler.shouldTriggerSelectAllOnLongPress(false, KeyEvent.KEYCODE_VOLUME_UP));
+        assertFalse(ImeVolumeKeyHandler.shouldResolveVolumeUpOnKeyUp(false, KeyEvent.KEYCODE_VOLUME_UP, false));
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyUp(false, KeyEvent.KEYCODE_VOLUME_UP));
     }
 
@@ -79,10 +72,9 @@ public class ImeVolumeKeyHandlerTest {
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyDown(true, KeyEvent.KEYCODE_A));
         assertFalse(ImeVolumeKeyHandler.shouldTrackVolumeDownOnKeyDown(true, KeyEvent.KEYCODE_A, 0));
         assertFalse(ImeVolumeKeyHandler.shouldTrackVolumeUpOnKeyDown(true, KeyEvent.KEYCODE_A, 0));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerSendOnLongPress(true, KeyEvent.KEYCODE_A));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerUndoOnLongPress(true, KeyEvent.KEYCODE_A));
-        assertFalse(ImeVolumeKeyHandler.shouldToggleRecordingOnKeyUp(true, KeyEvent.KEYCODE_A, false));
-        assertFalse(ImeVolumeKeyHandler.shouldTriggerRewriteOnKeyUp(true, KeyEvent.KEYCODE_A, false));
+        assertFalse(ImeVolumeKeyHandler.shouldResolveVolumeDownOnKeyUp(true, KeyEvent.KEYCODE_A));
+        assertFalse(ImeVolumeKeyHandler.shouldTriggerSelectAllOnLongPress(true, KeyEvent.KEYCODE_A));
+        assertFalse(ImeVolumeKeyHandler.shouldResolveVolumeUpOnKeyUp(true, KeyEvent.KEYCODE_A, false));
         assertFalse(ImeVolumeKeyHandler.shouldConsumeKeyUp(true, KeyEvent.KEYCODE_A));
     }
 }

@@ -29,6 +29,7 @@ public class RustInputMethodService extends InputMethodService {
     private static final String TAG = "OfflineVoiceInput";
     private static final long REPEAT_INITIAL_DELAY = 400;
     private static final long REPEAT_INTERVAL = 50;
+    private static final long DOUBLE_TAP_TIMEOUT = ViewConfiguration.getDoubleTapTimeout();
     private static final float SPACE_CURSOR_STEP_DP = 16f;
 
     static {
@@ -65,9 +66,12 @@ public class RustInputMethodService extends InputMethodService {
     private Call inFlightRewriteCall;
     private RewriteTarget inFlightRewriteTarget;
     private boolean rewriteCancelRequested = false;
-    private boolean volumeDownLongPressTriggered = false;
     private boolean volumeUpLongPressTriggered = false;
-    private String lastCommittedTranscription = "";
+    private Runnable pendingVolumeDownStartRunnable;
+    private Runnable pendingVolumeDownPostStopGuardRunnable;
+    private Runnable pendingVolumeUpRewriteRunnable;
+    private boolean awaitingTranscriptionResult = false;
+    private boolean pendingSendAfterTranscription = false;
 
     @Override
     public void onCreate() {
@@ -86,14 +90,14 @@ public class RustInputMethodService extends InputMethodService {
     @Override
     public void onStartInput(EditorInfo attribute, boolean restarting) {
         super.onStartInput(attribute, restarting);
-        clearRewriteMemory();
+        clearInputSessionState();
     }
 
     @Override
     public void onFinishInput() {
         super.onFinishInput();
         cancelRewrite(false);
-        clearRewriteMemory();
+        clearInputSessionState();
     }
 
     @Override
@@ -229,7 +233,7 @@ public class RustInputMethodService extends InputMethodService {
         super.onWindowHidden();
         finishSpaceTouch(false);
         cancelRewrite(false);
-        clearRewriteMemory();
+        clearInputSessionState();
         if (isRecording) {
             try {
                 cancelRecording();
@@ -247,7 +251,6 @@ public class RustInputMethodService extends InputMethodService {
             audioPauser.abandon(this);
             pauseAudioActive = false;
         }
-        volumeDownLongPressTriggered = false;
         volumeUpLongPressTriggered = false;
     }
 
@@ -256,10 +259,6 @@ public class RustInputMethodService extends InputMethodService {
         boolean imeShown = isInputViewShown();
         int repeatCount = event == null ? 0 : event.getRepeatCount();
         if (ImeVolumeKeyHandler.shouldTrackVolumeDownOnKeyDown(imeShown, keyCode, repeatCount)) {
-            volumeDownLongPressTriggered = false;
-            if (event != null) {
-                event.startTracking();
-            }
             return true;
         }
         if (ImeVolumeKeyHandler.shouldTrackVolumeUpOnKeyDown(imeShown, keyCode, repeatCount)) {
@@ -277,16 +276,10 @@ public class RustInputMethodService extends InputMethodService {
 
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        if (ImeVolumeKeyHandler.shouldTriggerSendOnLongPress(isInputViewShown(), keyCode)) {
-            volumeDownLongPressTriggered = true;
-            if (!isRecording) {
-                performImeEnterAction();
-            }
-            return true;
-        }
-        if (ImeVolumeKeyHandler.shouldTriggerUndoOnLongPress(isInputViewShown(), keyCode)) {
+        if (ImeVolumeKeyHandler.shouldTriggerSelectAllOnLongPress(isInputViewShown(), keyCode)) {
             volumeUpLongPressTriggered = true;
-            undoLastDictation();
+            cancelPendingVolumeUpRewrite();
+            selectAllTextInCurrentField();
             return true;
         }
         return super.onKeyLongPress(keyCode, event);
@@ -295,19 +288,16 @@ public class RustInputMethodService extends InputMethodService {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         boolean imeShown = isInputViewShown();
-        if (ImeVolumeKeyHandler.shouldToggleRecordingOnKeyUp(imeShown, keyCode, volumeDownLongPressTriggered)) {
-            volumeDownLongPressTriggered = false;
-            toggleRecordingFromImeTrigger();
+        if (ImeVolumeKeyHandler.shouldResolveVolumeDownOnKeyUp(imeShown, keyCode)) {
+            handleVolumeDownKeyUp();
             return true;
         }
-        if (ImeVolumeKeyHandler.shouldTriggerRewriteOnKeyUp(imeShown, keyCode, volumeUpLongPressTriggered)) {
+        if (ImeVolumeKeyHandler.shouldResolveVolumeUpOnKeyUp(imeShown, keyCode, volumeUpLongPressTriggered)) {
             volumeUpLongPressTriggered = false;
-            startOrCancelRewrite();
+            handleVolumeUpKeyUp();
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            volumeDownLongPressTriggered = false;
-        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
             volumeUpLongPressTriggered = false;
         }
         if (ImeVolumeKeyHandler.shouldConsumeKeyUp(imeShown, keyCode)) {
@@ -317,13 +307,7 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private void toggleRecordingFromImeTrigger() {
-        if (recordButton != null && !recordButton.isEnabled()) {
-            return;
-        }
-
-        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "No mic permission - grant in app", Toast.LENGTH_SHORT).show();
+        if (!canUseImeRecordingTrigger()) {
             return;
         }
 
@@ -334,7 +318,69 @@ public class RustInputMethodService extends InputMethodService {
         }
     }
 
+    private boolean canUseImeRecordingTrigger() {
+        if (recordButton != null && !recordButton.isEnabled()) {
+            return false;
+        }
+
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "No mic permission - grant in app", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void handleVolumeDownKeyUp() {
+        VolumeDownActionResolver.Action action = VolumeDownActionResolver.resolve(
+                isRecording,
+                isVolumeDownPostStopGuardActive(),
+                pendingVolumeDownStartRunnable != null);
+
+        switch (action) {
+            case STOP_RECORDING:
+                if (!canUseImeRecordingTrigger()) {
+                    return;
+                }
+                stopActiveRecording();
+                armVolumeDownPostStopGuard();
+                return;
+            case SEND:
+                consumePendingVolumeDownStart();
+                requestSendAfterTranscriptionOrImmediately();
+                return;
+            case SCHEDULE_START:
+                if (!canUseImeRecordingTrigger()) {
+                    return;
+                }
+                scheduleVolumeDownStart();
+                return;
+            case IGNORE:
+            default:
+                return;
+        }
+    }
+
+    private void handleVolumeUpKeyUp() {
+        if (consumePendingVolumeUpRewrite()) {
+            collapseSelectionToEnd();
+            return;
+        }
+
+        if (hasActiveSelection()) {
+            scheduleVolumeUpRewrite();
+            return;
+        }
+
+        startOrCancelRewrite();
+    }
+
     private void startActiveRecording() {
+        cancelPendingVolumeDownStart();
+        cancelVolumeDownPostStopGuard();
+        pendingSendAfterTranscription = false;
+        awaitingTranscriptionResult = false;
         transcribeProgressPercent = -1;
         if (isPauseAudioEnabled()) {
             audioPauser.request(this);
@@ -346,12 +392,129 @@ public class RustInputMethodService extends InputMethodService {
 
     private void stopActiveRecording() {
         stopRecording();
+        awaitingTranscriptionResult = true;
         if (pauseAudioActive) {
             audioPauser.abandon(this);
             pauseAudioActive = false;
         }
         transcribeProgressPercent = 0;
         updateRecordButtonUI(false);
+    }
+
+    private void scheduleVolumeDownStart() {
+        cancelPendingVolumeDownStart();
+        pendingVolumeDownStartRunnable = () -> {
+            pendingVolumeDownStartRunnable = null;
+            if (canUseImeRecordingTrigger()) {
+                startActiveRecording();
+            }
+        };
+        mainHandler.postDelayed(pendingVolumeDownStartRunnable, DOUBLE_TAP_TIMEOUT);
+    }
+
+    private boolean consumePendingVolumeDownStart() {
+        if (pendingVolumeDownStartRunnable == null) {
+            return false;
+        }
+
+        mainHandler.removeCallbacks(pendingVolumeDownStartRunnable);
+        pendingVolumeDownStartRunnable = null;
+        return true;
+    }
+
+    private void cancelPendingVolumeDownStart() {
+        if (pendingVolumeDownStartRunnable == null) {
+            return;
+        }
+
+        mainHandler.removeCallbacks(pendingVolumeDownStartRunnable);
+        pendingVolumeDownStartRunnable = null;
+    }
+
+    private void armVolumeDownPostStopGuard() {
+        cancelVolumeDownPostStopGuard();
+        pendingVolumeDownPostStopGuardRunnable = () -> pendingVolumeDownPostStopGuardRunnable = null;
+        mainHandler.postDelayed(pendingVolumeDownPostStopGuardRunnable, DOUBLE_TAP_TIMEOUT);
+    }
+
+    private boolean isVolumeDownPostStopGuardActive() {
+        return pendingVolumeDownPostStopGuardRunnable != null;
+    }
+
+    private void cancelVolumeDownPostStopGuard() {
+        if (pendingVolumeDownPostStopGuardRunnable == null) {
+            return;
+        }
+
+        mainHandler.removeCallbacks(pendingVolumeDownPostStopGuardRunnable);
+        pendingVolumeDownPostStopGuardRunnable = null;
+    }
+
+    private void scheduleVolumeUpRewrite() {
+        cancelPendingVolumeUpRewrite();
+        pendingVolumeUpRewriteRunnable = () -> {
+            pendingVolumeUpRewriteRunnable = null;
+            startOrCancelRewrite();
+        };
+        mainHandler.postDelayed(pendingVolumeUpRewriteRunnable, DOUBLE_TAP_TIMEOUT);
+    }
+
+    private boolean consumePendingVolumeUpRewrite() {
+        if (pendingVolumeUpRewriteRunnable == null) {
+            return false;
+        }
+
+        mainHandler.removeCallbacks(pendingVolumeUpRewriteRunnable);
+        pendingVolumeUpRewriteRunnable = null;
+        return true;
+    }
+
+    private void cancelPendingVolumeUpRewrite() {
+        if (pendingVolumeUpRewriteRunnable == null) {
+            return;
+        }
+
+        mainHandler.removeCallbacks(pendingVolumeUpRewriteRunnable);
+        pendingVolumeUpRewriteRunnable = null;
+    }
+
+    private boolean hasActiveSelection() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) {
+            return false;
+        }
+
+        CharSequence selectedText = ic.getSelectedText(0);
+        return selectedText != null && selectedText.length() > 0;
+    }
+
+    private void requestSendAfterTranscriptionOrImmediately() {
+        if (awaitingTranscriptionResult) {
+            pendingSendAfterTranscription = true;
+            return;
+        }
+
+        performImeEnterAction();
+    }
+
+    private void collapseSelectionToEnd() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) {
+            return;
+        }
+
+        ExtractedText extractedText = ic.getExtractedText(new ExtractedTextRequest(), 0);
+        SelectionEditor.collapseSelectionToEnd(ic, extractedText);
+    }
+
+    private void selectAllTextInCurrentField() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) {
+            return;
+        }
+
+        ExtractedText extractedText = ic.getExtractedText(new ExtractedTextRequest(), 0);
+        SelectionEditor.selectAll(ic, extractedText);
     }
 
     private void updateRecordButtonUI(boolean recording) {
@@ -451,18 +614,6 @@ public class RustInputMethodService extends InputMethodService {
         } else {
             ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
             ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
-        }
-    }
-
-    private void undoLastDictation() {
-        InputConnection ic = getCurrentInputConnection();
-        if (ic == null) {
-            return;
-        }
-
-        ExtractedText extractedText = ic.getExtractedText(new ExtractedTextRequest(), 0);
-        if (LastDictationUndoEditor.undo(ic, extractedText, lastCommittedTranscription)) {
-            lastCommittedTranscription = "";
         }
     }
 
@@ -614,15 +765,21 @@ public class RustInputMethodService extends InputMethodService {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
     }
 
-    private void clearRewriteMemory() {
+    private void clearInputSessionState() {
+        cancelPendingVolumeDownStart();
+        cancelVolumeDownPostStopGuard();
+        cancelPendingVolumeUpRewrite();
         inFlightRewriteTarget = null;
-        lastCommittedTranscription = "";
+        awaitingTranscriptionResult = false;
+        pendingSendAfterTranscription = false;
+        volumeUpLongPressTriggered = false;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         cancelRewrite(false);
+        clearInputSessionState();
         cleanupNative();
         if (pauseAudioActive) {
             audioPauser.abandon(this);
@@ -649,6 +806,11 @@ public class RustInputMethodService extends InputMethodService {
             } else if (status == null || status.startsWith("Ready") || status.startsWith("Listening")
                     || status.startsWith("Canceled") || status.startsWith("Error")) {
                 transcribeProgressPercent = -1;
+            }
+
+            if (status == null || status.startsWith("Canceled") || status.startsWith("Error")) {
+                awaitingTranscriptionResult = false;
+                pendingSendAfterTranscription = false;
             }
 
             updateUiState();
@@ -678,7 +840,6 @@ public class RustInputMethodService extends InputMethodService {
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) {
                 String committed = text + " ";
-                lastCommittedTranscription = committed;
                 ic.commitText(committed, 1);
 
                 if (new File(getFilesDir(), "select_transcription").exists()) {
@@ -691,6 +852,12 @@ public class RustInputMethodService extends InputMethodService {
                         }
                     }
                 }
+            }
+
+            awaitingTranscriptionResult = false;
+            if (pendingSendAfterTranscription) {
+                pendingSendAfterTranscription = false;
+                performImeEnterAction();
             }
         });
     }

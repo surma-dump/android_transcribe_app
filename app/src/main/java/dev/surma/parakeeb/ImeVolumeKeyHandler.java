@@ -18,19 +18,15 @@ final class ImeVolumeKeyHandler {
         return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_UP && repeatCount == 0;
     }
 
-    static boolean shouldTriggerSendOnLongPress(boolean imeShown, int keyCode) {
-        return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN;
-    }
-
-    static boolean shouldTriggerUndoOnLongPress(boolean imeShown, int keyCode) {
+    static boolean shouldTriggerSelectAllOnLongPress(boolean imeShown, int keyCode) {
         return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_UP;
     }
 
-    static boolean shouldToggleRecordingOnKeyUp(boolean imeShown, int keyCode, boolean longPressHandled) {
-        return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && !longPressHandled;
+    static boolean shouldResolveVolumeDownOnKeyUp(boolean imeShown, int keyCode) {
+        return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN;
     }
 
-    static boolean shouldTriggerRewriteOnKeyUp(boolean imeShown, int keyCode, boolean longPressHandled) {
+    static boolean shouldResolveVolumeUpOnKeyUp(boolean imeShown, int keyCode, boolean longPressHandled) {
         return imeShown && keyCode == KeyEvent.KEYCODE_VOLUME_UP && !longPressHandled;
     }
 
