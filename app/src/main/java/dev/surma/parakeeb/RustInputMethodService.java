@@ -1,8 +1,6 @@
 package dev.surma.parakeeb;
 
 import android.content.pm.PackageManager;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.LayerDrawable;
 import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
 import android.os.Looper;
@@ -42,7 +40,9 @@ public class RustInputMethodService extends InputMethodService {
         }
     }
 
-    private ImageView recordButton;
+    private View recordButton;
+    private ImageView recordIcon;
+    private ProgressBar recordProgress;
     private View backspaceButton;
     private View spaceButton;
     private View enterButton;
@@ -59,8 +59,7 @@ public class RustInputMethodService extends InputMethodService {
     private boolean isSpaceCursorDragActive = false;
     private float lastSpaceTouchRawX = 0f;
     private boolean pauseAudioActive = false;
-    private LayerDrawable recordButtonBackground;
-    private int transcribeProgressPercent = -1;
+    private boolean isTranscribing = false;
     private LlmSettingsStore llmSettingsStore;
     private OpenAiChatClient openAiChatClient;
     private Call inFlightRewriteCall;
@@ -114,12 +113,8 @@ public class RustInputMethodService extends InputMethodService {
             });
 
             recordButton = view.findViewById(R.id.ime_record);
-            Drawable background = recordButton.getBackground();
-            if (background instanceof LayerDrawable) {
-                recordButtonBackground = (LayerDrawable) background.mutate();
-            } else {
-                recordButtonBackground = null;
-            }
+            recordIcon = view.findViewById(R.id.ime_record_icon);
+            recordProgress = view.findViewById(R.id.ime_record_progress);
             backspaceButton = view.findViewById(R.id.ime_backspace);
             spaceButton = view.findViewById(R.id.ime_space);
             enterButton = view.findViewById(R.id.ime_enter);
@@ -221,7 +216,7 @@ public class RustInputMethodService extends InputMethodService {
                     audioPauser.request(this);
                     pauseAudioActive = true;
                 }
-                transcribeProgressPercent = -1;
+                isTranscribing = false;
                 startRecording();
                 updateRecordButtonUI(true);
             }
@@ -244,7 +239,7 @@ public class RustInputMethodService extends InputMethodService {
                 } catch (Throwable ignored) {
                 }
             }
-            transcribeProgressPercent = -1;
+            isTranscribing = false;
             updateRecordButtonUI(false);
         }
         if (pauseAudioActive) {
@@ -381,7 +376,7 @@ public class RustInputMethodService extends InputMethodService {
         cancelVolumeDownPostStopGuard();
         pendingSendAfterTranscription = false;
         awaitingTranscriptionResult = false;
-        transcribeProgressPercent = -1;
+        isTranscribing = false;
         if (isPauseAudioEnabled()) {
             audioPauser.request(this);
             pauseAudioActive = true;
@@ -393,11 +388,11 @@ public class RustInputMethodService extends InputMethodService {
     private void stopActiveRecording() {
         stopRecording();
         awaitingTranscriptionResult = true;
+        isTranscribing = true;
         if (pauseAudioActive) {
             audioPauser.abandon(this);
             pauseAudioActive = false;
         }
-        transcribeProgressPercent = 0;
         updateRecordButtonUI(false);
     }
 
@@ -523,27 +518,18 @@ public class RustInputMethodService extends InputMethodService {
             return;
         }
 
-        if (recording) {
-            recordButton.setColorFilter(0xFFF44336);
-        } else {
-            recordButton.setColorFilter(0xFF2196F3);
+        if (recordIcon != null) {
+            if (recording) {
+                recordIcon.setColorFilter(0xFFF44336);
+            } else {
+                recordIcon.setColorFilter(0xFF2196F3);
+            }
+            recordIcon.setVisibility(isTranscribing ? View.INVISIBLE : View.VISIBLE);
         }
 
-        updateRecordButtonProgress();
-    }
-
-    private void updateRecordButtonProgress() {
-        if (recordButtonBackground == null) {
-            return;
+        if (recordProgress != null) {
+            recordProgress.setVisibility(isTranscribing ? View.VISIBLE : View.GONE);
         }
-
-        Drawable progressDrawable = recordButtonBackground.findDrawableByLayerId(android.R.id.progress);
-        if (progressDrawable == null) {
-            return;
-        }
-
-        int visiblePercent = (!isRecording && transcribeProgressPercent >= 0) ? transcribeProgressPercent : 0;
-        progressDrawable.setLevel(visiblePercent * 100);
     }
 
     private void updateRewriteButtonUi() {
@@ -772,6 +758,7 @@ public class RustInputMethodService extends InputMethodService {
         inFlightRewriteTarget = null;
         awaitingTranscriptionResult = false;
         pendingSendAfterTranscription = false;
+        isTranscribing = false;
         volumeUpLongPressTriggered = false;
     }
 
@@ -798,14 +785,11 @@ public class RustInputMethodService extends InputMethodService {
             Log.d(TAG, "Status: " + status);
             lastStatus = status;
 
-            int parsedPercent = ImeProgressStatusParser.parseProgressPercent(status);
-            if (parsedPercent >= 0) {
-                transcribeProgressPercent = parsedPercent;
-            } else if (status != null && (status.startsWith("Queued") || status.startsWith("Transcribing"))) {
-                transcribeProgressPercent = 0;
+            if (status != null && (status.startsWith("Queued") || status.startsWith("Transcribing"))) {
+                isTranscribing = true;
             } else if (status == null || status.startsWith("Ready") || status.startsWith("Listening")
                     || status.startsWith("Canceled") || status.startsWith("Error")) {
-                transcribeProgressPercent = -1;
+                isTranscribing = false;
             }
 
             if (status == null || status.startsWith("Canceled") || status.startsWith("Error")) {
@@ -831,7 +815,7 @@ public class RustInputMethodService extends InputMethodService {
             recordButton.setAlpha(disable ? 0.5f : 1.0f);
         }
 
-        updateRecordButtonProgress();
+        updateRecordButtonUI(isRecording);
         updateRewriteButtonUi();
     }
 
@@ -855,6 +839,8 @@ public class RustInputMethodService extends InputMethodService {
             }
 
             awaitingTranscriptionResult = false;
+            isTranscribing = false;
+            updateRecordButtonUI(false);
             if (pendingSendAfterTranscription) {
                 pendingSendAfterTranscription = false;
                 performImeEnterAction();
