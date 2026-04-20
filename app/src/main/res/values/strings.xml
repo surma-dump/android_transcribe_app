@@ -50,10 +50,12 @@
     <string name="toast_llm_test_failure">LLM connection failed</string>
     <string name="toast_llm_test_canceled">LLM connection test canceled</string>
 
-    <string name="ime_rewrite">Rewrite</string>
-    <string name="ime_rewrite_cancel">Cancel rewrite</string>
     <string name="toast_rewrite_missing_target">Nothing to rewrite</string>
     <string name="toast_rewrite_failed">Rewrite failed</string>
     <string name="toast_rewrite_canceled">Rewrite canceled</string>
     <string name="toast_rewrite_missing_text">Selected text is empty</string>
+
+    <string name="ime_toggle_panel">Toggle panel</string>
+    <string name="tab_history">History</string>
+    <string name="history_empty">No transcriptions yet</string>
 </resources>
