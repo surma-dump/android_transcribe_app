@@ -13,31 +13,22 @@
         android:baselineAligned="false">
 
         <FrameLayout
-            android:id="@+id/ime_rewrite"
+            android:id="@+id/ime_toggle_panel"
             android:layout_width="48dp"
             android:layout_height="32dp"
             android:layout_marginEnd="8dp"
             android:background="@drawable/bg_backspace"
             android:clickable="true"
             android:focusable="true"
-            android:contentDescription="@string/ime_rewrite">
+            android:contentDescription="@string/ime_toggle_panel">
 
             <ImageView
-                android:id="@+id/ime_rewrite_icon"
+                android:id="@+id/ime_toggle_panel_icon"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:src="@drawable/ic_rewrite"
+                android:src="@drawable/ic_expand_panel"
                 android:scaleType="centerInside"
                 android:tint="#333333" />
-
-            <ProgressBar
-                android:id="@+id/ime_rewrite_progress"
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center"
-                android:indeterminate="true"
-                android:visibility="gone" />
         </FrameLayout>
 
         <LinearLayout
@@ -113,6 +104,65 @@
             android:clickable="true"
             android:focusable="true"
             android:contentDescription="Backspace"/>
+    </LinearLayout>
+
+    <!-- Expanded panel: hidden by default, shown when toggle is pressed -->
+    <LinearLayout
+        android:id="@+id/expanded_panel"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+
+        <!-- Content area: history list (and future tab contents) -->
+        <FrameLayout
+            android:id="@+id/panel_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <!-- History panel: the only tab content for now -->
+            <ListView
+                android:id="@+id/history_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:divider="@android:color/transparent"
+                android:dividerHeight="0dp"
+                android:clipToPadding="false"
+                android:scrollbarStyle="outsideOverlay" />
+
+            <TextView
+                android:id="@+id/history_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="@string/history_empty"
+                android:textSize="13sp"
+                android:textColor="#999999"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <!-- Vertical tab strip on the right -->
+        <LinearLayout
+            android:id="@+id/tab_strip"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="top|center_horizontal"
+            android:paddingStart="4dp">
+
+            <ImageView
+                android:id="@+id/tab_history"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_history"
+                android:scaleType="centerInside"
+                android:background="@drawable/bg_tab_selected"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/tab_history" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>
