@@ -68,6 +68,7 @@ public class RustInputMethodService extends InputMethodService {
     private float lastSpaceTouchRawX = 0f;
     private boolean pauseAudioActive = false;
     private boolean isTranscribing = false;
+    private boolean isRewriting = false;
     private LlmSettingsStore llmSettingsStore;
     private OpenAiChatClient openAiChatClient;
     private Call inFlightRewriteCall;
@@ -552,17 +553,19 @@ public class RustInputMethodService extends InputMethodService {
             return;
         }
 
+        boolean showSpinner = isTranscribing || isRewriting;
+
         if (recordIcon != null) {
             if (recording) {
                 recordIcon.setColorFilter(0xFFF44336);
             } else {
                 recordIcon.setColorFilter(0xFF2196F3);
             }
-            recordIcon.setVisibility(isTranscribing ? View.INVISIBLE : View.VISIBLE);
+            recordIcon.setVisibility(showSpinner ? View.INVISIBLE : View.VISIBLE);
         }
 
         if (recordProgress != null) {
-            recordProgress.setVisibility(isTranscribing ? View.VISIBLE : View.GONE);
+            recordProgress.setVisibility(showSpinner ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -702,7 +705,9 @@ public class RustInputMethodService extends InputMethodService {
         }
 
         rewriteCancelRequested = false;
+        isRewriting = true;
         inFlightRewriteTarget = target;
+        updateUiState();
         Call call = openAiChatClient.rewriteAsync(settings, target.parts.coreText, new OpenAiChatClient.Callback() {
             @Override
             public void onSuccess(String text) {
@@ -745,6 +750,8 @@ public class RustInputMethodService extends InputMethodService {
         inFlightRewriteCall = null;
         inFlightRewriteTarget = null;
         rewriteCancelRequested = false;
+        isRewriting = false;
+        updateUiState();
 
         if (target == null) {
             showRewriteFailure(getString(R.string.toast_rewrite_failed));
@@ -760,6 +767,8 @@ public class RustInputMethodService extends InputMethodService {
         inFlightRewriteCall = null;
         inFlightRewriteTarget = null;
         rewriteCancelRequested = false;
+        isRewriting = false;
+        updateUiState();
         showRewriteFailure(message);
     }
 
@@ -768,6 +777,8 @@ public class RustInputMethodService extends InputMethodService {
         inFlightRewriteTarget = null;
         boolean shouldToast = rewriteCancelRequested;
         rewriteCancelRequested = false;
+        isRewriting = false;
+        updateUiState();
         if (shouldToast) {
             Toast.makeText(this, R.string.toast_rewrite_canceled, Toast.LENGTH_SHORT).show();
         }
@@ -822,6 +833,7 @@ public class RustInputMethodService extends InputMethodService {
         awaitingTranscriptionResult = false;
         pendingSendAfterTranscription = false;
         isTranscribing = false;
+        isRewriting = false;
         volumeUpLongPressTriggered = false;
     }
 
@@ -876,7 +888,7 @@ public class RustInputMethodService extends InputMethodService {
         boolean isWaiting = lastStatus.contains("Waiting");
 
         if (recordButton != null) {
-            boolean disable = isWaiting;
+            boolean disable = isWaiting || isRewriting;
             recordButton.setEnabled(!disable);
             recordButton.setAlpha(disable ? 0.5f : 1.0f);
         }

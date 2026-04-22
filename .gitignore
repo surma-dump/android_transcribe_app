@@ -41,3 +41,6 @@ app/src/main/jniLibs/
 # macOS
 .DS_Store
 ._*
+
+# Nix build output
+result
