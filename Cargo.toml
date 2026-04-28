@@ -17,4 +17,4 @@ once_cell = "1.19"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 
-ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
+ort = { version = "2.0.0-rc.10", features = ["load-dynamic", "xnnpack", "nnapi"] }
