@@ -86,6 +86,33 @@ export STORE_PASS=yourpassword
 
 The Parakeet TDT model files (~670 MB) are automatically downloaded from HuggingFace during the first build via a Gradle task. Checksums are verified with SHA-256. No manual download is needed.
 
+### ONNX Runtime Execution Providers
+
+Parakeeb defaults to ONNX Runtime's XNNPACK execution provider with CPU fallback (`xnnpack,cpu`). On Android builds, the execution provider list can be overridden for testing without rebuilding:
+
+```bash
+adb shell setprop debug.parakeeb.ort_eps xnnpack,cpu
+adb shell setprop debug.parakeeb.ort_eps cpu
+adb shell setprop debug.parakeeb.ort_eps nnapi,cpu
+adb shell setprop debug.parakeeb.ort_eps nnapi-fp16,cpu
+adb shell setprop debug.parakeeb.ort_eps nnapi-nchw,cpu
+adb shell setprop debug.parakeeb.ort_eps nnapi-no-cpu,cpu
+adb shell setprop debug.parakeeb.ort_eps nnapi-fp16-no-cpu,cpu
+adb shell am force-stop dev.surma.parakeeb
+```
+
+For NNAPI experiments, the ONNX Runtime graph optimization level can also be changed without rebuilding:
+
+```bash
+adb shell setprop debug.parakeeb.ort_opt all
+adb shell setprop debug.parakeeb.ort_opt basic
+adb shell setprop debug.parakeeb.ort_opt extended
+adb shell setprop debug.parakeeb.ort_opt disable
+adb shell am force-stop dev.surma.parakeeb
+```
+
+The model is loaded once per app/IME process, so force-stop the app after changing these properties. NNAPI modes are experimental; `xnnpack,cpu` is the recommended setting for the current int8 Parakeet model. On Pixel 8a testing, `nnapi-fp16,cpu` triggers Darwinn/TPU compilation but has very high session creation latency and slower transcription than XNNPACK.
+
 ## Project Structure
 
 ```

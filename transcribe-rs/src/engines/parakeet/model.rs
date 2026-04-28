@@ -1,14 +1,20 @@
 use ndarray::{Array, Array1, Array2, Array3, ArrayD, ArrayViewD, IxDyn};
 use once_cell::sync::Lazy;
-use ort::execution_providers::CPUExecutionProvider;
+use ort::execution_providers::{
+    CPUExecutionProvider, ExecutionProvider, ExecutionProviderDispatch, NNAPIExecutionProvider,
+    XNNPACKExecutionProvider,
+};
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::TensorRef;
 use regex::Regex;
 
+#[cfg(target_os = "android")]
+use std::ffi::{CStr, CString};
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 
 pub type DecoderState = (Array3<f32>, Array3<f32>);
 
@@ -27,6 +33,40 @@ const CHUNK_OVERLAP_SAMPLES: usize = 1 * 16_000; // 1 second
 
 static DECODE_SPACE_RE: Lazy<Result<Regex, regex::Error>> =
     Lazy::new(|| Regex::new(r"\A\s|\s\B|(\s)\b"));
+
+const DEFAULT_EXECUTION_PROVIDERS: &str = "xnnpack,cpu";
+#[cfg(target_os = "android")]
+const ANDROID_EP_PROPERTY: &str = "debug.parakeeb.ort_eps";
+#[cfg(target_os = "android")]
+const ANDROID_OPT_PROPERTY: &str = "debug.parakeeb.ort_opt";
+
+#[cfg(target_os = "android")]
+fn android_system_property(name: &str) -> Option<String> {
+    let name = CString::new(name).ok()?;
+    let mut value = [0; 92]; // Android PROP_VALUE_MAX
+    let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+    if len <= 0 {
+        return None;
+    }
+
+    let value = unsafe { CStr::from_ptr(value.as_ptr()) }
+        .to_string_lossy()
+        .trim()
+        .to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+#[cfg(target_os = "android")]
+extern "C" {
+    fn __system_property_get(
+        name: *const std::os::raw::c_char,
+        value: *mut std::os::raw::c_char,
+    ) -> std::os::raw::c_int;
+}
 
 #[derive(Debug, Clone)]
 pub struct TimestampedResult {
@@ -100,7 +140,7 @@ impl ParakeetModel {
         intra_threads: Option<usize>,
         try_quantized: bool,
     ) -> Result<Session, ParakeetError> {
-        let providers = vec![CPUExecutionProvider::default().build()];
+        let providers = Self::execution_providers();
 
         // Try quantized version first if requested, fallback to regular version
         let model_filename = if try_quantized {
@@ -123,8 +163,23 @@ impl ParakeetModel {
             regular_name
         };
 
+        log::info!(
+            "Creating ONNX Runtime session for {} with requested execution providers: {:?}",
+            model_filename,
+            providers
+        );
+
+        let (optimization_level, optimization_source, optimization_name) =
+            Self::requested_graph_optimization_level();
+        log::info!(
+            "Using ONNX Runtime graph optimization level from {}: {}",
+            optimization_source,
+            optimization_name
+        );
+
+        let session_start = Instant::now();
         let mut builder = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_optimization_level(optimization_level)?
             .with_execution_providers(providers)?
             .with_parallel_execution(true)?;
 
@@ -135,6 +190,11 @@ impl ParakeetModel {
         }
 
         let session = builder.commit_from_file(model_dir.as_ref().join(&model_filename))?;
+        log::info!(
+            "Created ONNX Runtime session for {} in {:.2}s",
+            model_filename,
+            session_start.elapsed().as_secs_f64()
+        );
 
         for input in &session.inputs {
             log::info!(
@@ -146,6 +206,167 @@ impl ParakeetModel {
         }
 
         Ok(session)
+    }
+
+    fn execution_providers() -> Vec<ExecutionProviderDispatch> {
+        let (requested, source) = Self::requested_execution_provider_list();
+        log::info!(
+            "Requested ONNX Runtime execution providers from {}: {}",
+            source,
+            requested
+        );
+
+        let mut providers = Vec::new();
+        let mut has_cpu = false;
+
+        for token in requested.split(',') {
+            let provider = token.trim();
+            if provider.is_empty() {
+                continue;
+            }
+
+            let provider = provider.to_ascii_lowercase();
+            match provider.as_str() {
+                "cpu" => {
+                    let ep = CPUExecutionProvider::default();
+                    Self::log_execution_provider_availability(&ep);
+                    has_cpu = true;
+                    providers.push(ep.build());
+                }
+                "xnnpack" => {
+                    let ep = XNNPACKExecutionProvider::default();
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi" => {
+                    let ep = NNAPIExecutionProvider::default();
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi-fp16" | "nnapi_fp16" => {
+                    let ep = NNAPIExecutionProvider::default().with_fp16(true);
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi-no-cpu" | "nnapi_disable_cpu" | "nnapi-disable-cpu" => {
+                    let ep = NNAPIExecutionProvider::default().with_disable_cpu(true);
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi-fp16-no-cpu" | "nnapi_fp16_no_cpu" | "nnapi-fp16-disable-cpu" => {
+                    let ep = NNAPIExecutionProvider::default()
+                        .with_fp16(true)
+                        .with_disable_cpu(true);
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi-nchw" => {
+                    let ep = NNAPIExecutionProvider::default().with_nchw(true);
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                "nnapi-cpu-only" | "nnapi_cpu_only" => {
+                    let ep = NNAPIExecutionProvider::default().with_cpu_only(true);
+                    Self::log_execution_provider_availability(&ep);
+                    providers.push(ep.build());
+                }
+                unknown => log::warn!(
+                    "Ignoring unknown ONNX Runtime execution provider '{}'; expected one of cpu, xnnpack, nnapi, nnapi-fp16, nnapi-no-cpu, nnapi-fp16-no-cpu, nnapi-nchw, nnapi-cpu-only",
+                    unknown
+                ),
+            }
+        }
+
+        if !has_cpu {
+            log::info!("Appending CPUExecutionProvider as fallback");
+            let ep = CPUExecutionProvider::default();
+            Self::log_execution_provider_availability(&ep);
+            providers.push(ep.build());
+        }
+
+        providers
+    }
+
+    fn log_execution_provider_availability(ep: &impl ExecutionProvider) {
+        match ep.is_available() {
+            Ok(available) => log::info!(
+                "ONNX Runtime execution provider {}: supported_by_platform={}, is_available={}",
+                ep.name(),
+                ep.supported_by_platform(),
+                available
+            ),
+            Err(err) => log::warn!(
+                "Failed to query ONNX Runtime availability for {}: {}",
+                ep.name(),
+                err
+            ),
+        }
+    }
+
+    fn requested_execution_provider_list() -> (String, &'static str) {
+        #[cfg(target_os = "android")]
+        if let Some(value) = android_system_property(ANDROID_EP_PROPERTY) {
+            return (value, ANDROID_EP_PROPERTY);
+        }
+
+        if let Ok(value) = std::env::var("PARAKEEB_ORT_EPS") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return (value.to_string(), "PARAKEEB_ORT_EPS");
+            }
+        }
+
+        if let Some(value) = option_env!("PARAKEEB_ORT_EPS") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return (value.to_string(), "compile-time PARAKEEB_ORT_EPS");
+            }
+        }
+
+        (DEFAULT_EXECUTION_PROVIDERS.to_string(), "default")
+    }
+
+    fn requested_graph_optimization_level() -> (GraphOptimizationLevel, &'static str, &'static str) {
+        let (requested, source) = Self::requested_graph_optimization_level_name();
+        let normalized = requested.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "disable" | "disabled" | "none" | "0" => {
+                (GraphOptimizationLevel::Disable, source, "disable")
+            }
+            "basic" | "level1" | "1" => (GraphOptimizationLevel::Level1, source, "basic"),
+            "extended" | "level2" | "2" => (GraphOptimizationLevel::Level2, source, "extended"),
+            "all" | "level3" | "3" => (GraphOptimizationLevel::Level3, source, "all"),
+            unknown => {
+                log::warn!(
+                    "Ignoring unknown ONNX Runtime graph optimization level '{}'; expected disable, basic, extended, or all",
+                    unknown
+                );
+                (GraphOptimizationLevel::Level3, "default", "all")
+            }
+        }
+    }
+
+    fn requested_graph_optimization_level_name() -> (String, &'static str) {
+        #[cfg(target_os = "android")]
+        if let Some(value) = android_system_property(ANDROID_OPT_PROPERTY) {
+            return (value, ANDROID_OPT_PROPERTY);
+        }
+
+        if let Ok(value) = std::env::var("PARAKEEB_ORT_OPT") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return (value.to_string(), "PARAKEEB_ORT_OPT");
+            }
+        }
+
+        if let Some(value) = option_env!("PARAKEEB_ORT_OPT") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return (value.to_string(), "compile-time PARAKEEB_ORT_OPT");
+            }
+        }
+
+        ("all".to_string(), "default")
     }
 
     fn load_vocab<P: AsRef<Path>>(model_dir: P) -> Result<(Vec<String>, i32), ParakeetError> {
@@ -335,19 +556,49 @@ impl ParakeetModel {
         waveforms: &ArrayViewD<f32>,
         waveforms_len: &ArrayViewD<i64>,
     ) -> Result<Vec<TimestampedResult>, ParakeetError> {
+        let recognize_start = Instant::now();
+
         // Preprocess and encode
+        let preprocess_start = Instant::now();
         let (features, features_lens) = self.preprocess(waveforms, waveforms_len)?;
+        log::info!(
+            "Parakeet preprocessor inference completed in {:.2}s",
+            preprocess_start.elapsed().as_secs_f64()
+        );
+
+        let encode_start = Instant::now();
         let (encoder_out, encoder_out_lens) =
             self.encode(&features.view(), &features_lens.view())?;
+        log::info!(
+            "Parakeet encoder inference completed in {:.2}s",
+            encode_start.elapsed().as_secs_f64()
+        );
 
         // Decode for each batch item
         let mut results = Vec::new();
-        for (encodings, &encodings_len) in encoder_out.outer_iter().zip(encoder_out_lens.iter()) {
+        for (index, (encodings, &encodings_len)) in encoder_out
+            .outer_iter()
+            .zip(encoder_out_lens.iter())
+            .enumerate()
+        {
+            let decode_start = Instant::now();
             let (tokens, timestamps) =
                 self.decode_sequence(&encodings.view(), encodings_len as usize)?;
+            log::info!(
+                "Parakeet decoder inference for batch item {} completed in {:.2}s ({} encoder frames, {} tokens)",
+                index,
+                decode_start.elapsed().as_secs_f64(),
+                encodings_len,
+                tokens.len()
+            );
             let result = self.decode_tokens(tokens, timestamps);
             results.push(result);
         }
+
+        log::info!(
+            "Parakeet recognize_batch completed in {:.2}s",
+            recognize_start.elapsed().as_secs_f64()
+        );
 
         Ok(results)
     }
@@ -459,13 +710,23 @@ impl ParakeetModel {
     /// Transcribe a single chunk that fits within the encoder's positional
     /// encoding limit.
     fn transcribe_chunk(&mut self, samples: Vec<f32>) -> Result<TimestampedResult, ParakeetError> {
+        let chunk_start = Instant::now();
         let batch_size = 1;
         let samples_len = samples.len();
+        log::info!(
+            "Transcribing Parakeet chunk: {} samples ({:.2}s)",
+            samples_len,
+            samples_len as f64 / 16_000.0
+        );
 
         let waveforms = Array2::from_shape_vec((batch_size, samples_len), samples)?.into_dyn();
         let waveforms_lens = Array1::from_vec(vec![samples_len as i64]).into_dyn();
 
         let results = self.recognize_batch(&waveforms.view(), &waveforms_lens.view())?;
+        log::info!(
+            "Parakeet chunk transcription completed in {:.2}s",
+            chunk_start.elapsed().as_secs_f64()
+        );
 
         results.into_iter().next().ok_or_else(|| {
             ParakeetError::Io(std::io::Error::new(
