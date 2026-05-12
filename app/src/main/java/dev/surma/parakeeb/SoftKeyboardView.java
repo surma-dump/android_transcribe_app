@@ -44,6 +44,8 @@ public class SoftKeyboardView extends LinearLayout
     private boolean altActive   = false;
     private boolean metaActive  = false;
 
+    private TextView btnEsc;
+    private TextView btnTab;
     private TextView btnCtrl;
     private TextView btnShift;
     private TextView btnAlt;
@@ -92,11 +94,15 @@ public class SoftKeyboardView extends LinearLayout
                 LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         rowLp.topMargin = dpToPx(4);
 
+        btnEsc   = makeModifierButton(context, "Esc");
+        btnTab   = makeModifierButton(context, "Tab");
         btnCtrl  = makeModifierButton(context, "Ctrl");
         btnShift = makeModifierButton(context, "Shift");
         btnAlt   = makeModifierButton(context, "Alt");
         btnMeta  = makeModifierButton(context, "Meta");
 
+        modRow.addView(btnEsc);
+        modRow.addView(btnTab);
         modRow.addView(btnCtrl);
         modRow.addView(btnShift);
         modRow.addView(btnAlt);
@@ -104,6 +110,8 @@ public class SoftKeyboardView extends LinearLayout
 
         addView(modRow, rowLp);
 
+        btnEsc.setOnClickListener(v   -> sendImmediateKey(KeyEvent.KEYCODE_ESCAPE));
+        btnTab.setOnClickListener(v   -> sendImmediateKey(KeyEvent.KEYCODE_TAB));
         btnCtrl.setOnClickListener(v  -> toggleModifier(ModifierKind.CTRL));
         btnShift.setOnClickListener(v -> toggleModifier(ModifierKind.SHIFT));
         btnAlt.setOnClickListener(v   -> toggleModifier(ModifierKind.ALT));
@@ -215,6 +223,14 @@ public class SoftKeyboardView extends LinearLayout
                 ch = Character.toUpperCase(ch);
             }
             ic.commitText(String.valueOf(ch), 1);
+        }
+    }
+
+    /** Send a single key immediately (for non-toggle keys like Esc and Tab). */
+    private void sendImmediateKey(int keyCode) {
+        InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+        if (ic != null) {
+            sendKeyEvent(ic, keyCode);
         }
     }
 
