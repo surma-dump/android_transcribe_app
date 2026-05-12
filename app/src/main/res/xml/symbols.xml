@@ -44,7 +44,7 @@
         <Key android:codes="58"  android:keyLabel=":" android:keyWidth="11.25%p" />
         <Key android:codes="59"  android:keyLabel=";" android:keyWidth="11.25%p" />
         <Key android:codes="33"  android:keyLabel="!" android:keyWidth="11.25%p" />
-        <Key android:codes="63"  android:keyLabel="?" android:keyWidth="11.25%p" />
+        <Key android:codes="63"  android:keyLabel="\?" android:keyWidth="11.25%p" />
     </Row>
 
     <!-- Row 4: ABC , SPACE . Enter -->
