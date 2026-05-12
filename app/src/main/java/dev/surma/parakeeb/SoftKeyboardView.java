@@ -117,6 +117,30 @@ public class SoftKeyboardView extends LinearLayout
         btnAlt.setOnClickListener(v   -> toggleModifier(ModifierKind.ALT));
         btnMeta.setOnClickListener(v  -> toggleModifier(ModifierKind.META));
 
+        // 3. Build the arrow key row (vim hjkl order: left, down, up, right).
+        LinearLayout arrowRow = new LinearLayout(context);
+        arrowRow.setOrientation(HORIZONTAL);
+        LayoutParams arrowLp = new LayoutParams(
+                LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        arrowLp.topMargin = dpToPx(4);
+
+        TextView btnLeft  = makeModifierButton(context, "\u25C0");
+        TextView btnDown  = makeModifierButton(context, "\u25BC");
+        TextView btnUp    = makeModifierButton(context, "\u25B2");
+        TextView btnRight = makeModifierButton(context, "\u25B6");
+
+        arrowRow.addView(btnLeft);
+        arrowRow.addView(btnDown);
+        arrowRow.addView(btnUp);
+        arrowRow.addView(btnRight);
+
+        addView(arrowRow, arrowLp);
+
+        btnLeft.setOnClickListener(v  -> sendImmediateKey(KeyEvent.KEYCODE_DPAD_LEFT));
+        btnDown.setOnClickListener(v  -> sendImmediateKey(KeyEvent.KEYCODE_DPAD_DOWN));
+        btnUp.setOnClickListener(v    -> sendImmediateKey(KeyEvent.KEYCODE_DPAD_UP));
+        btnRight.setOnClickListener(v -> sendImmediateKey(KeyEvent.KEYCODE_DPAD_RIGHT));
+
         refreshModifierUi();
     }
 
