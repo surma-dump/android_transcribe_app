@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Design keyboard icon (simplified) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Outer rounded rectangle -->
+    <path
+        android:pathData="M20,5 L4,5 C2.9,5 2,5.9 2,7 L2,17 C2,18.1 2.9,19 4,19 L20,19 C21.1,19 22,18.1 22,17 L22,7 C22,5.9 21.1,5 20,5Z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#333333"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- Three rows of key indicators -->
+    <!-- Top row: 4 keys -->
+    <path android:pathData="M5,8 L7,8" android:strokeWidth="1.5" android:strokeColor="#333333" />
+    <path android:pathData="M9,8 L11,8" android:strokeWidth="1.5" android:strokeColor="#333333" />
+    <path android:pathData="M13,8 L15,8" android:strokeWidth="1.5" android:strokeColor="#333333" />
+    <path android:pathData="M17,8 L19,8" android:strokeWidth="1.5" android:strokeColor="#333333" />
+
+    <!-- Middle row: 3 keys -->
+    <path android:pathData="M6,12 L8,12" android:strokeWidth="1.5" android:strokeColor="#333333" />
+    <path android:pathData="M11,12 L13,12" android:strokeWidth="1.5" android:strokeColor="#333333" />
+    <path android:pathData="M16,12 L18,12" android:strokeWidth="1.5" android:strokeColor="#333333" />
+
+    <!-- Bottom row: spacebar -->
+    <path android:pathData="M8,16 L16,16" android:strokeWidth="1.5" android:strokeColor="#333333" />
+</vector>
