@@ -111,58 +111,82 @@
         android:id="@+id/expanded_panel"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:layout_marginTop="8dp"
         android:visibility="gone">
 
-        <!-- Content area: history list (and future tab contents) -->
-        <FrameLayout
-            android:id="@+id/panel_content"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1">
-
-            <!-- History panel: the only tab content for now -->
-            <ListView
-                android:id="@+id/history_list"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:divider="@android:color/transparent"
-                android:dividerHeight="0dp"
-                android:clipToPadding="false"
-                android:scrollbarStyle="outsideOverlay" />
-
-            <TextView
-                android:id="@+id/history_empty"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/history_empty"
-                android:textSize="13sp"
-                android:textColor="#999999"
-                android:visibility="gone" />
-        </FrameLayout>
-
-        <!-- Vertical tab strip on the right -->
+        <!-- Horizontal tab strip at the top -->
         <LinearLayout
             android:id="@+id/tab_strip"
-            android:layout_width="36dp"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:gravity="top|center_horizontal"
-            android:paddingStart="4dp">
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:orientation="horizontal"
+            android:gravity="start|center_vertical"
+            android:paddingBottom="4dp">
 
             <ImageView
                 android:id="@+id/tab_history"
                 android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_history"
                 android:scaleType="centerInside"
                 android:background="@drawable/bg_tab_selected"
                 android:clickable="true"
                 android:focusable="true"
                 android:contentDescription="@string/tab_history" />
+
+            <ImageView
+                android:id="@+id/tab_keyboard"
+                android:layout_width="32dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_keyboard_tab"
+                android:scaleType="centerInside"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/tab_keyboard" />
         </LinearLayout>
+
+        <!-- Content area: stacked tab contents; only one visible at a time -->
+        <FrameLayout
+            android:id="@+id/panel_content"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- History panel -->
+            <FrameLayout
+                android:id="@+id/panel_history"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <ListView
+                    android:id="@+id/history_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:divider="@android:color/transparent"
+                    android:dividerHeight="0dp"
+                    android:clipToPadding="false"
+                    android:scrollbarStyle="outsideOverlay" />
+
+                <TextView
+                    android:id="@+id/history_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="@string/history_empty"
+                    android:textSize="13sp"
+                    android:textColor="#999999"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Keyboard panel (hidden by default) -->
+            <dev.surma.parakeeb.SoftKeyboardView
+                android:id="@+id/panel_keyboard"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
 
 </LinearLayout>

@@ -57,5 +57,6 @@
 
     <string name="ime_toggle_panel">Toggle panel</string>
     <string name="tab_history">History</string>
+    <string name="tab_keyboard">Keyboard</string>
     <string name="history_empty">No transcriptions yet</string>
 </resources>

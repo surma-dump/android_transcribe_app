@@ -55,7 +55,14 @@ public class RustInputMethodService extends InputMethodService {
     private View expandedPanel;
     private ListView historyList;
     private TextView historyEmpty;
+    private View panelHistory;
+    private SoftKeyboardView panelKeyboard;
+    private ImageView tabHistory;
+    private ImageView tabKeyboard;
     private boolean panelExpanded = false;
+    private static final int TAB_HISTORY  = 0;
+    private static final int TAB_KEYBOARD = 1;
+    private int activeTab = TAB_HISTORY;
     private TranscriptHistoryStore historyStore;
     private HistoryAdapter historyAdapter;
     private boolean isRecording = false;
@@ -137,11 +144,24 @@ public class RustInputMethodService extends InputMethodService {
             expandedPanel = view.findViewById(R.id.expanded_panel);
             historyList = view.findViewById(R.id.history_list);
             historyEmpty = view.findViewById(R.id.history_empty);
+            panelHistory = view.findViewById(R.id.panel_history);
+            panelKeyboard = view.findViewById(R.id.panel_keyboard);
+            tabHistory = view.findViewById(R.id.tab_history);
+            tabKeyboard = view.findViewById(R.id.tab_keyboard);
 
             historyAdapter = new HistoryAdapter(this);
             historyList.setAdapter(historyAdapter);
 
             togglePanelButton.setOnClickListener(v -> togglePanel());
+
+            // Tab switching
+            tabHistory.setOnClickListener(v -> switchTab(TAB_HISTORY));
+            tabKeyboard.setOnClickListener(v -> switchTab(TAB_KEYBOARD));
+
+            // Wire keyboard panel to our InputConnection
+            if (panelKeyboard != null) {
+                panelKeyboard.setInputConnectionProvider(() -> getCurrentInputConnection());
+            }
 
             historyList.setOnItemClickListener((parent, v, position, id) -> {
                 TranscriptEntry entry = historyAdapter.getItem(position);
@@ -580,7 +600,7 @@ public class RustInputMethodService extends InputMethodService {
             lp.height = panelHeight;
             expandedPanel.setLayoutParams(lp);
             expandedPanel.setVisibility(View.VISIBLE);
-            refreshHistoryList();
+            applyTabVisibility();
         } else {
             expandedPanel.setVisibility(View.GONE);
         }
@@ -599,6 +619,27 @@ public class RustInputMethodService extends InputMethodService {
         }
         if (togglePanelIcon != null) {
             togglePanelIcon.setImageResource(R.drawable.ic_expand_panel);
+        }
+    }
+
+    private void switchTab(int tab) {
+        if (activeTab == tab) return;
+        activeTab = tab;
+        applyTabVisibility();
+    }
+
+    private void applyTabVisibility() {
+        boolean showHistory  = (activeTab == TAB_HISTORY);
+        boolean showKeyboard = (activeTab == TAB_KEYBOARD);
+
+        if (panelHistory  != null) panelHistory.setVisibility(showHistory   ? View.VISIBLE : View.GONE);
+        if (panelKeyboard != null) panelKeyboard.setVisibility(showKeyboard ? View.VISIBLE : View.GONE);
+
+        if (tabHistory  != null) tabHistory.setBackgroundResource(showHistory   ? R.drawable.bg_tab_selected : 0);
+        if (tabKeyboard != null) tabKeyboard.setBackgroundResource(showKeyboard ? R.drawable.bg_tab_selected : 0);
+
+        if (showHistory) {
+            refreshHistoryList();
         }
     }
 
