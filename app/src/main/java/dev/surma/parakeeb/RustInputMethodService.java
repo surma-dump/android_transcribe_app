@@ -60,9 +60,9 @@ public class RustInputMethodService extends InputMethodService {
     private ImageView tabHistory;
     private ImageView tabKeyboard;
     private boolean panelExpanded = false;
-    private static final int TAB_HISTORY  = 0;
-    private static final int TAB_KEYBOARD = 1;
-    private int activeTab = TAB_HISTORY;
+    private static final int TAB_KEYBOARD = 0;
+    private static final int TAB_HISTORY  = 1;
+    private int activeTab = TAB_KEYBOARD;
     private TranscriptHistoryStore historyStore;
     private HistoryAdapter historyAdapter;
     private boolean isRecording = false;

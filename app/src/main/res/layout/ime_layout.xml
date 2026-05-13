@@ -125,26 +125,26 @@
             android:paddingBottom="4dp">
 
             <ImageView
-                android:id="@+id/tab_history"
+                android:id="@+id/tab_keyboard"
                 android:layout_width="32dp"
                 android:layout_height="28dp"
-                android:src="@drawable/ic_history"
+                android:src="@drawable/ic_keyboard_tab"
                 android:scaleType="centerInside"
                 android:background="@drawable/bg_tab_selected"
                 android:clickable="true"
                 android:focusable="true"
-                android:contentDescription="@string/tab_history" />
+                android:contentDescription="@string/tab_keyboard" />
 
             <ImageView
-                android:id="@+id/tab_keyboard"
+                android:id="@+id/tab_history"
                 android:layout_width="32dp"
                 android:layout_height="28dp"
                 android:layout_marginStart="4dp"
-                android:src="@drawable/ic_keyboard_tab"
+                android:src="@drawable/ic_history"
                 android:scaleType="centerInside"
                 android:clickable="true"
                 android:focusable="true"
-                android:contentDescription="@string/tab_keyboard" />
+                android:contentDescription="@string/tab_history" />
         </LinearLayout>
 
         <!-- Content area: stacked tab contents; only one visible at a time -->
@@ -154,11 +154,18 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- History panel -->
+            <!-- Keyboard panel (shown by default) -->
+            <dev.surma.parakeeb.SoftKeyboardView
+                android:id="@+id/panel_keyboard"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- History panel (hidden by default) -->
             <FrameLayout
                 android:id="@+id/panel_history"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="match_parent"
+                android:visibility="gone">
 
                 <ListView
                     android:id="@+id/history_list"
@@ -179,13 +186,6 @@
                     android:textColor="#999999"
                     android:visibility="gone" />
             </FrameLayout>
-
-            <!-- Keyboard panel (hidden by default) -->
-            <dev.surma.parakeeb.SoftKeyboardView
-                android:id="@+id/panel_keyboard"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:visibility="gone" />
         </FrameLayout>
     </LinearLayout>
 
