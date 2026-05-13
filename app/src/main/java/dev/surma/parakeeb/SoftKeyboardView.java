@@ -1,40 +1,37 @@
 package dev.surma.parakeeb;
 
 import android.content.Context;
-import android.inputmethodservice.Keyboard;
-import android.inputmethodservice.KeyboardView;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.AttributeSet;
+import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.View;
 import android.view.inputmethod.InputConnection;
 import android.widget.LinearLayout;
+import android.widget.Space;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * A composite view containing a standard QWERTY soft keyboard (via the
- * deprecated but functional {@link KeyboardView}) plus a bottom row of
- * sticky modifier-toggle buttons (Ctrl, Shift, Alt, Meta).
- *
- * <p>Modifiers are manual toggles: press to activate, press again to
- * deactivate. They do <em>not</em> auto-reset after a key press.
+ * A composite keyboard view built entirely from styled buttons (no deprecated
+ * {@code KeyboardView}). Contains a QWERTY/symbols character grid, a sticky
+ * modifier row, and an arrow key row.
  */
-@SuppressWarnings("deprecation")
-public class SoftKeyboardView extends LinearLayout
-        implements KeyboardView.OnKeyboardActionListener {
+public class SoftKeyboardView extends LinearLayout {
 
     /** Callback so the hosting IME can supply the current InputConnection. */
     public interface InputConnectionProvider {
         InputConnection getInputConnection();
     }
 
-    // Key codes matching the XML layouts.
-    private static final int KEYCODE_SHIFT  = -1;
-    private static final int KEYCODE_MODE   = -2;  // toggle qwerty <-> symbols
-    private static final int KEYCODE_DELETE  = -5;
-    private static final int KEYCODE_ENTER  = -4;
+    private static final long DELETE_REPEAT_INITIAL_DELAY = 400;
+    private static final long DELETE_REPEAT_INTERVAL = 50;
 
-    private KeyboardView keyboardView;
-    private Keyboard qwertyKeyboard;
-    private Keyboard symbolsKeyboard;
     private boolean isSymbolsMode = false;
     private boolean isShifted = false;
 
@@ -44,14 +41,19 @@ public class SoftKeyboardView extends LinearLayout
     private boolean altActive   = false;
     private boolean metaActive  = false;
 
-    private TextView btnEsc;
-    private TextView btnTab;
+    private InputConnectionProvider icProvider;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable deleteRepeatRunnable;
+
+    // UI references for dynamic updates.
+    private LinearLayout keyRowsContainer;
+    private final List<TextView> letterKeys = new ArrayList<>();
+    private TextView shiftKeyView;
+
     private TextView btnCtrl;
     private TextView btnShift;
     private TextView btnAlt;
     private TextView btnMeta;
-
-    private InputConnectionProvider icProvider;
 
     public SoftKeyboardView(Context context) {
         super(context);
@@ -74,32 +76,27 @@ public class SoftKeyboardView extends LinearLayout
     private void init(Context context) {
         setOrientation(VERTICAL);
 
-        // 1. Build the KeyboardView programmatically.
-        keyboardView = new KeyboardView(context, null);
-        keyboardView.setOnKeyboardActionListener(this);
-        keyboardView.setPreviewEnabled(false);
+        // 1. Container for keyboard character rows (rebuilt on mode switch).
+        keyRowsContainer = new LinearLayout(context);
+        keyRowsContainer.setOrientation(VERTICAL);
+        addView(keyRowsContainer, new LayoutParams(
+                LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        buildKeyRows(context);
 
-        qwertyKeyboard  = new Keyboard(context, R.xml.qwerty);
-        symbolsKeyboard = new Keyboard(context, R.xml.symbols);
-        keyboardView.setKeyboard(qwertyKeyboard);
-
-        LayoutParams kvLp = new LayoutParams(
-                LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        addView(keyboardView, kvLp);
-
-        // 2. Build the modifier row.
+        // 2. Modifier row.
         LinearLayout modRow = new LinearLayout(context);
         modRow.setOrientation(HORIZONTAL);
-        LayoutParams rowLp = new LayoutParams(
+        LayoutParams modLp = new LayoutParams(
                 LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        rowLp.topMargin = dpToPx(4);
+        modLp.topMargin = dpToPx(4);
 
-        btnEsc   = makeModifierButton(context, "Esc");
-        btnTab   = makeModifierButton(context, "Tab");
-        btnCtrl  = makeModifierButton(context, "Ctrl");
-        btnShift = makeModifierButton(context, "Shift");
-        btnAlt   = makeModifierButton(context, "Alt");
-        btnMeta  = makeModifierButton(context, "Meta");
+        TextView btnEsc = makeKeyButton(context, "Esc", 1f);
+        TextView btnTab = makeKeyButton(context, "Tab", 1f);
+        btnCtrl  = makeKeyButton(context, "Ctrl",  1f);
+        btnShift = makeKeyButton(context, "Shift", 1f);
+        btnAlt   = makeKeyButton(context, "Alt",   1f);
+        TextView btnMeta_ = makeKeyButton(context, "Meta", 1f);
+        btnMeta = btnMeta_;
 
         modRow.addView(btnEsc);
         modRow.addView(btnTab);
@@ -108,7 +105,7 @@ public class SoftKeyboardView extends LinearLayout
         modRow.addView(btnAlt);
         modRow.addView(btnMeta);
 
-        addView(modRow, rowLp);
+        addView(modRow, modLp);
 
         btnEsc.setOnClickListener(v   -> sendImmediateKey(KeyEvent.KEYCODE_ESCAPE));
         btnTab.setOnClickListener(v   -> sendImmediateKey(KeyEvent.KEYCODE_TAB));
@@ -117,17 +114,17 @@ public class SoftKeyboardView extends LinearLayout
         btnAlt.setOnClickListener(v   -> toggleModifier(ModifierKind.ALT));
         btnMeta.setOnClickListener(v  -> toggleModifier(ModifierKind.META));
 
-        // 3. Build the arrow key row (vim hjkl order: left, down, up, right).
+        // 3. Arrow key row (vim hjkl order: left, down, up, right).
         LinearLayout arrowRow = new LinearLayout(context);
         arrowRow.setOrientation(HORIZONTAL);
         LayoutParams arrowLp = new LayoutParams(
                 LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         arrowLp.topMargin = dpToPx(4);
 
-        TextView btnLeft  = makeModifierButton(context, "\u25C0");
-        TextView btnDown  = makeModifierButton(context, "\u25BC");
-        TextView btnUp    = makeModifierButton(context, "\u25B2");
-        TextView btnRight = makeModifierButton(context, "\u25B6");
+        TextView btnLeft  = makeKeyButton(context, "\u25C0", 1f);
+        TextView btnDown  = makeKeyButton(context, "\u25BC", 1f);
+        TextView btnUp    = makeKeyButton(context, "\u25B2", 1f);
+        TextView btnRight = makeKeyButton(context, "\u25B6", 1f);
 
         arrowRow.addView(btnLeft);
         arrowRow.addView(btnDown);
@@ -144,20 +141,241 @@ public class SoftKeyboardView extends LinearLayout
         refreshModifierUi();
     }
 
-    private TextView makeModifierButton(Context context, String label) {
-        TextView tv = new TextView(context);
-        tv.setText(label);
-        tv.setTextSize(13);
-        tv.setTextColor(0xFF333333);
-        tv.setGravity(android.view.Gravity.CENTER);
-        tv.setBackgroundResource(R.drawable.bg_modifier_inactive);
-        tv.setClickable(true);
-        tv.setFocusable(true);
+    // -----------------------------------------------------------------------
+    // Keyboard rows
+    // -----------------------------------------------------------------------
 
-        LayoutParams lp = new LayoutParams(0, dpToPx(36), 1f);
-        lp.setMargins(dpToPx(2), 0, dpToPx(2), 0);
-        tv.setLayoutParams(lp);
-        return tv;
+    private void buildKeyRows(Context context) {
+        keyRowsContainer.removeAllViews();
+        letterKeys.clear();
+        shiftKeyView = null;
+
+        if (isSymbolsMode) {
+            buildSymbolRows(context);
+        } else {
+            buildQwertyRows(context);
+        }
+    }
+
+    private void buildQwertyRows(Context context) {
+        // Row 1: q w e r t y u i o p  (10 × 1.0 = 10.0)
+        String[] r1 = {"q","w","e","r","t","y","u","i","o","p"};
+        keyRowsContainer.addView(
+                buildLetterRow(context, r1, 1f, 0f), rowLp(0));
+
+        // Row 2: a s d f g h j k l  (spacer(0.5) + 9×1 + spacer(0.5) = 10.0)
+        String[] r2 = {"a","s","d","f","g","h","j","k","l"};
+        keyRowsContainer.addView(
+                buildLetterRow(context, r2, 1f, 0.5f), rowLp(2));
+
+        // Row 3: ⇧(1.5) z x c v b n m(7×1) ⌫(1.5) = 10.0
+        LinearLayout r3 = new LinearLayout(context);
+        r3.setOrientation(HORIZONTAL);
+
+        shiftKeyView = makeKeyButton(context, "\u21E7", 1.5f);
+        shiftKeyView.setOnClickListener(v -> toggleShift());
+        r3.addView(shiftKeyView);
+
+        for (String ch : new String[]{"z","x","c","v","b","n","m"}) {
+            TextView tv = makeKeyButton(context, ch, 1f);
+            tv.setOnClickListener(v -> onCharKey(ch.charAt(0)));
+            letterKeys.add(tv);
+            r3.addView(tv);
+        }
+
+        TextView delKey = makeKeyButton(context, "\u232B", 1.5f);
+        setupDeleteKey(delKey);
+        r3.addView(delKey);
+
+        keyRowsContainer.addView(r3, rowLp(2));
+
+        // Row 4: ?123(1.5) ,(1) SPACE(5) .(1) ⏎(1.5) = 10.0
+        keyRowsContainer.addView(buildBottomRow(context, "?123"), rowLp(2));
+    }
+
+    private void buildSymbolRows(Context context) {
+        // Row 1: 1-0  (10 × 1.0 = 10.0)
+        String[] r1 = {"1","2","3","4","5","6","7","8","9","0"};
+        keyRowsContainer.addView(
+                buildCharRow(context, r1, 1f, 0f), rowLp(0));
+
+        // Row 2: @ # $ % & - + ( )  (spacer(0.5) + 9×1 + spacer(0.5) = 10.0)
+        String[] r2 = {"@","#","$","%","&","-","+","(",")"};
+        keyRowsContainer.addView(
+                buildCharRow(context, r2, 1f, 0.5f), rowLp(2));
+
+        // Row 3: = * " ' : ; ! ?  (spacer(1) + 8×1 + spacer(1) = 10.0)
+        String[] r3 = {"=","*","\"","'",":",";","!","?"};
+        keyRowsContainer.addView(
+                buildCharRow(context, r3, 1f, 1f), rowLp(2));
+
+        // Row 4: ABC(1.5) ,(1) SPACE(5) .(1) ⏎(1.5) = 10.0
+        keyRowsContainer.addView(buildBottomRow(context, "ABC"), rowLp(2));
+    }
+
+    /** Build a row of letter keys (shift-aware). */
+    private LinearLayout buildLetterRow(Context context, String[] letters,
+                                         float keyWeight, float spacerWeight) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(HORIZONTAL);
+
+        if (spacerWeight > 0) {
+            row.addView(makeSpacer(context, spacerWeight));
+        }
+
+        for (String ch : letters) {
+            String display = isShifted ? ch.toUpperCase() : ch;
+            TextView tv = makeKeyButton(context, display, keyWeight);
+            tv.setOnClickListener(v -> onCharKey(ch.charAt(0)));
+            letterKeys.add(tv);
+            row.addView(tv);
+        }
+
+        if (spacerWeight > 0) {
+            row.addView(makeSpacer(context, spacerWeight));
+        }
+
+        return row;
+    }
+
+    /** Build a row of character/symbol keys (not shift-aware). */
+    private LinearLayout buildCharRow(Context context, String[] chars,
+                                       float keyWeight, float spacerWeight) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(HORIZONTAL);
+
+        if (spacerWeight > 0) {
+            row.addView(makeSpacer(context, spacerWeight));
+        }
+
+        for (String ch : chars) {
+            TextView tv = makeKeyButton(context, ch, keyWeight);
+            tv.setOnClickListener(v -> onCharKey(ch.charAt(0)));
+            row.addView(tv);
+        }
+
+        if (spacerWeight > 0) {
+            row.addView(makeSpacer(context, spacerWeight));
+        }
+
+        return row;
+    }
+
+    /** Build the bottom row: mode-switch, comma, space, period, enter. */
+    private LinearLayout buildBottomRow(Context context, String modeLabel) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(HORIZONTAL);
+
+        TextView modeKey = makeKeyButton(context, modeLabel, 1.5f);
+        modeKey.setTextSize(11);
+        modeKey.setOnClickListener(v -> toggleMode());
+        row.addView(modeKey);
+
+        TextView commaKey = makeKeyButton(context, ",", 1f);
+        commaKey.setOnClickListener(v -> onCharKey(','));
+        row.addView(commaKey);
+
+        TextView spaceKey = makeKeyButton(context, " ", 5f);
+        spaceKey.setOnClickListener(v -> onCharKey(' '));
+        row.addView(spaceKey);
+
+        TextView periodKey = makeKeyButton(context, ".", 1f);
+        periodKey.setOnClickListener(v -> onCharKey('.'));
+        row.addView(periodKey);
+
+        TextView enterKey = makeKeyButton(context, "\u23CE", 1.5f);
+        enterKey.setOnClickListener(v -> onEnterKey());
+        row.addView(enterKey);
+
+        return row;
+    }
+
+    // -----------------------------------------------------------------------
+    // Key actions
+    // -----------------------------------------------------------------------
+
+    private void onCharKey(char ch) {
+        InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+        if (ic == null) return;
+
+        int meta = activeMetaState();
+        if (meta != 0) {
+            int keyCode = charToKeyCode(ch);
+            if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+                sendKeyEvent(ic, keyCode);
+            }
+        } else {
+            char out = ch;
+            if (isShifted && Character.isLetter(ch)) {
+                out = Character.toUpperCase(ch);
+            }
+            ic.commitText(String.valueOf(out), 1);
+        }
+    }
+
+    private void onEnterKey() {
+        InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+        if (ic != null) {
+            sendKeyEvent(ic, KeyEvent.KEYCODE_ENTER);
+        }
+    }
+
+    private void toggleShift() {
+        isShifted = !isShifted;
+        updateShiftVisuals();
+    }
+
+    private void toggleMode() {
+        isSymbolsMode = !isSymbolsMode;
+        isShifted = false;
+        buildKeyRows(getContext());
+    }
+
+    private void updateShiftVisuals() {
+        // Update shift key appearance.
+        if (shiftKeyView != null) {
+            shiftKeyView.setBackgroundResource(
+                    isShifted ? R.drawable.bg_modifier_active
+                              : R.drawable.bg_key_normal);
+            shiftKeyView.setTextColor(getColor(isShifted
+                    ? R.color.ime_modifier_active_text : R.color.ime_key_text));
+        }
+        // Update letter key labels.
+        for (TextView tv : letterKeys) {
+            String current = tv.getText().toString();
+            tv.setText(isShifted ? current.toUpperCase() : current.toLowerCase());
+        }
+    }
+
+    private void setupDeleteKey(TextView delKey) {
+        deleteRepeatRunnable = new Runnable() {
+            @Override
+            public void run() {
+                InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+                if (ic != null) {
+                    sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
+                }
+                handler.postDelayed(this, DELETE_REPEAT_INTERVAL);
+            }
+        };
+
+        delKey.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+                    if (ic != null) {
+                        sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
+                    }
+                    handler.postDelayed(deleteRepeatRunnable, DELETE_REPEAT_INITIAL_DELAY);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    handler.removeCallbacks(deleteRepeatRunnable);
+                    return true;
+                default:
+                    return false;
+            }
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -187,8 +405,9 @@ public class SoftKeyboardView extends LinearLayout
         if (btn == null) return;
         btn.setBackgroundResource(
                 active ? R.drawable.bg_modifier_active
-                       : R.drawable.bg_modifier_inactive);
-        btn.setTextColor(active ? 0xFFFFFFFF : 0xFF333333);
+                       : R.drawable.bg_key_normal);
+        btn.setTextColor(getColor(active
+                ? R.color.ime_modifier_active_text : R.color.ime_key_text));
     }
 
     private int activeMetaState() {
@@ -200,57 +419,7 @@ public class SoftKeyboardView extends LinearLayout
         return meta;
     }
 
-    // -----------------------------------------------------------------------
-    // KeyboardView.OnKeyboardActionListener
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void onKey(int primaryCode, int[] keyCodes) {
-        InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
-        if (ic == null) return;
-
-        if (primaryCode == KEYCODE_SHIFT) {
-            isShifted = !isShifted;
-            qwertyKeyboard.setShifted(isShifted);
-            keyboardView.invalidateAllKeys();
-            return;
-        }
-
-        if (primaryCode == KEYCODE_MODE) {
-            isSymbolsMode = !isSymbolsMode;
-            keyboardView.setKeyboard(isSymbolsMode ? symbolsKeyboard : qwertyKeyboard);
-            return;
-        }
-
-        if (primaryCode == KEYCODE_DELETE) {
-            sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
-            return;
-        }
-
-        if (primaryCode == KEYCODE_ENTER) {
-            sendKeyEvent(ic, KeyEvent.KEYCODE_ENTER);
-            return;
-        }
-
-        // Regular character key.
-        int meta = activeMetaState();
-        if (meta != 0) {
-            // With modifiers active: send as KeyEvent so apps see the meta state.
-            int keyCode = charToKeyCode(primaryCode);
-            if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
-                sendKeyEvent(ic, keyCode);
-            }
-        } else {
-            // No modifiers: commit text for better compatibility.
-            char ch = (char) primaryCode;
-            if (isShifted && Character.isLetter(ch)) {
-                ch = Character.toUpperCase(ch);
-            }
-            ic.commitText(String.valueOf(ch), 1);
-        }
-    }
-
-    /** Send a single key immediately (for non-toggle keys like Esc and Tab). */
+    /** Send a single key immediately (for non-toggle keys like Esc, Tab, arrows). */
     private void sendImmediateKey(int keyCode) {
         InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
         if (ic != null) {
@@ -260,16 +429,15 @@ public class SoftKeyboardView extends LinearLayout
 
     private void sendKeyEvent(InputConnection ic, int keyCode) {
         int meta = activeMetaState();
-        // Also fold in the keyboard-level shift when sending events.
         if (isShifted) {
             meta |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
         }
-        long now = android.os.SystemClock.uptimeMillis();
+        long now = SystemClock.uptimeMillis();
         ic.sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, meta));
         ic.sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0, meta));
     }
 
-    /** Best-effort ASCII char → Android KEYCODE mapping. */
+    /** Best-effort ASCII char to Android KEYCODE mapping. */
     private static int charToKeyCode(int ch) {
         if (ch >= 'a' && ch <= 'z') return KeyEvent.KEYCODE_A + (ch - 'a');
         if (ch >= 'A' && ch <= 'Z') return KeyEvent.KEYCODE_A + (ch - 'A');
@@ -297,22 +465,47 @@ public class SoftKeyboardView extends LinearLayout
     }
 
     // -----------------------------------------------------------------------
-    // Unused listener stubs
+    // View factory helpers
     // -----------------------------------------------------------------------
-    @Override public void onPress(int primaryCode) {}
-    @Override public void onRelease(int primaryCode) {}
-    @Override public void onText(CharSequence text) {}
-    @Override public void swipeLeft() {}
-    @Override public void swipeRight() {}
-    @Override public void swipeDown() {}
-    @Override public void swipeUp() {}
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    private TextView makeKeyButton(Context context, String label, float weight) {
+        TextView tv = new TextView(context);
+        tv.setText(label);
+        tv.setTextSize(13);
+        tv.setTextColor(getColor(R.color.ime_key_text));
+        tv.setGravity(Gravity.CENTER);
+        tv.setBackgroundResource(R.drawable.bg_key_normal);
+        tv.setClickable(true);
+        tv.setFocusable(true);
+
+        LayoutParams lp = new LayoutParams(0, dpToPx(36), weight);
+        lp.setMargins(dpToPx(2), 0, dpToPx(2), 0);
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    private View makeSpacer(Context context, float weight) {
+        Space spacer = new Space(context);
+        LayoutParams lp = new LayoutParams(0, dpToPx(36), weight);
+        spacer.setLayoutParams(lp);
+        return spacer;
+    }
+
+    private LayoutParams rowLp(int topMarginDp) {
+        LayoutParams lp = new LayoutParams(
+                LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        if (topMarginDp > 0) {
+            lp.topMargin = dpToPx(topMarginDp);
+        }
+        return lp;
+    }
 
     private int dpToPx(int dp) {
         float density = getResources().getDisplayMetrics().density;
         return Math.round(dp * density);
+    }
+
+    private int getColor(int resId) {
+        return getContext().getResources().getColor(resId, getContext().getTheme());
     }
 }

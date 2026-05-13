@@ -1,7 +1,13 @@
 package dev.surma.parakeeb;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.inputmethodservice.InputMethodService;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -19,6 +25,8 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -59,10 +67,22 @@ public class RustInputMethodService extends InputMethodService {
     private SoftKeyboardView panelKeyboard;
     private ImageView tabHistory;
     private ImageView tabKeyboard;
+    private ImageView tabSettings;
+    private ScrollView panelSettings;
+    @SuppressWarnings("deprecation")
+    private Switch autoRewriteToggle;
+    @SuppressWarnings("deprecation")
+    private Switch pasteModeToggle;
     private boolean panelExpanded = false;
-    private static final int TAB_HISTORY  = 0;
-    private static final int TAB_KEYBOARD = 1;
-    private int activeTab = TAB_HISTORY;
+    private static final int TAB_KEYBOARD = 0;
+    private static final int TAB_HISTORY  = 1;
+    private static final int TAB_SETTINGS = 2;
+    private static final String PREFS_NAME = "ime_ui_state";
+    private static final String PREF_PANEL_EXPANDED = "panel_expanded";
+    private static final String PREF_ACTIVE_TAB = "active_tab";
+    private static final String PREF_AUTO_REWRITE = "auto_rewrite";
+    private static final String PREF_PASTE_MODE = "paste_mode";
+    private int activeTab = TAB_KEYBOARD;
     private TranscriptHistoryStore historyStore;
     private HistoryAdapter historyAdapter;
     private boolean isRecording = false;
@@ -146,17 +166,37 @@ public class RustInputMethodService extends InputMethodService {
             historyEmpty = view.findViewById(R.id.history_empty);
             panelHistory = view.findViewById(R.id.panel_history);
             panelKeyboard = view.findViewById(R.id.panel_keyboard);
+            panelSettings = view.findViewById(R.id.panel_settings);
             tabHistory = view.findViewById(R.id.tab_history);
             tabKeyboard = view.findViewById(R.id.tab_keyboard);
+            tabSettings = view.findViewById(R.id.tab_settings);
+            autoRewriteToggle = view.findViewById(R.id.setting_auto_rewrite_toggle);
+            pasteModeToggle = view.findViewById(R.id.setting_paste_mode_toggle);
 
             historyAdapter = new HistoryAdapter(this);
             historyList.setAdapter(historyAdapter);
+
+            // Restore settings toggles from prefs.
+            SharedPreferences uiPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            if (autoRewriteToggle != null) {
+                autoRewriteToggle.setChecked(uiPrefs.getBoolean(PREF_AUTO_REWRITE, false));
+                autoRewriteToggle.setOnCheckedChangeListener((btn, checked) ->
+                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                .edit().putBoolean(PREF_AUTO_REWRITE, checked).apply());
+            }
+            if (pasteModeToggle != null) {
+                pasteModeToggle.setChecked(uiPrefs.getBoolean(PREF_PASTE_MODE, false));
+                pasteModeToggle.setOnCheckedChangeListener((btn, checked) ->
+                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                .edit().putBoolean(PREF_PASTE_MODE, checked).apply());
+            }
 
             togglePanelButton.setOnClickListener(v -> togglePanel());
 
             // Tab switching
             tabHistory.setOnClickListener(v -> switchTab(TAB_HISTORY));
             tabKeyboard.setOnClickListener(v -> switchTab(TAB_KEYBOARD));
+            tabSettings.setOnClickListener(v -> switchTab(TAB_SETTINGS));
 
             // Wire keyboard panel to our InputConnection
             if (panelKeyboard != null) {
@@ -250,6 +290,7 @@ public class RustInputMethodService extends InputMethodService {
 
             recordButton.setOnClickListener(v -> toggleRecordingFromImeTrigger());
 
+            restorePanelState();
             updateUiState();
             return view;
         } catch (Exception e) {
@@ -263,6 +304,7 @@ public class RustInputMethodService extends InputMethodService {
     @Override
     public void onWindowShown() {
         super.onWindowShown();
+        restorePanelState();
         if (!isRecording && new File(getFilesDir(), "auto_record").exists()) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
@@ -577,9 +619,9 @@ public class RustInputMethodService extends InputMethodService {
 
         if (recordIcon != null) {
             if (recording) {
-                recordIcon.setColorFilter(0xFFF44336);
+                recordIcon.setColorFilter(getResources().getColor(R.color.record_red, getTheme()));
             } else {
-                recordIcon.setColorFilter(0xFF2196F3);
+                recordIcon.setColorFilter(getResources().getColor(R.color.colorPrimary, getTheme()));
             }
             recordIcon.setVisibility(showSpinner ? View.INVISIBLE : View.VISIBLE);
         }
@@ -609,8 +651,45 @@ public class RustInputMethodService extends InputMethodService {
             togglePanelIcon.setImageResource(
                     panelExpanded ? R.drawable.ic_collapse_panel : R.drawable.ic_expand_panel);
         }
+
+        persistUiState();
     }
 
+    /**
+     * Restore the panel expanded/collapsed state and active tab from
+     * SharedPreferences. Called on initial creation and every time the
+     * keyboard window is shown again.
+     */
+    private void restorePanelState() {
+        SharedPreferences uiPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        panelExpanded = uiPrefs.getBoolean(PREF_PANEL_EXPANDED, false);
+        activeTab = uiPrefs.getInt(PREF_ACTIVE_TAB, TAB_KEYBOARD);
+
+        if (expandedPanel == null) return;
+
+        if (panelExpanded) {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int panelHeight = dm.heightPixels / 3;
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) expandedPanel.getLayoutParams();
+            lp.height = panelHeight;
+            expandedPanel.setLayoutParams(lp);
+            expandedPanel.setVisibility(View.VISIBLE);
+            applyTabVisibility();
+        } else {
+            expandedPanel.setVisibility(View.GONE);
+        }
+
+        if (togglePanelIcon != null) {
+            togglePanelIcon.setImageResource(
+                    panelExpanded ? R.drawable.ic_collapse_panel : R.drawable.ic_expand_panel);
+        }
+    }
+
+    /**
+     * Visually collapse the panel (e.g. when the keyboard window hides).
+     * Does NOT persist the change — the user's preferred state is only
+     * saved when they explicitly toggle via {@link #togglePanel()}.
+     */
     private void collapsePanel() {
         if (!panelExpanded) return;
         panelExpanded = false;
@@ -626,17 +705,21 @@ public class RustInputMethodService extends InputMethodService {
         if (activeTab == tab) return;
         activeTab = tab;
         applyTabVisibility();
+        persistUiState();
     }
 
     private void applyTabVisibility() {
         boolean showHistory  = (activeTab == TAB_HISTORY);
         boolean showKeyboard = (activeTab == TAB_KEYBOARD);
+        boolean showSettings = (activeTab == TAB_SETTINGS);
 
         if (panelHistory  != null) panelHistory.setVisibility(showHistory   ? View.VISIBLE : View.GONE);
         if (panelKeyboard != null) panelKeyboard.setVisibility(showKeyboard ? View.VISIBLE : View.GONE);
+        if (panelSettings != null) panelSettings.setVisibility(showSettings ? View.VISIBLE : View.GONE);
 
         if (tabHistory  != null) tabHistory.setBackgroundResource(showHistory   ? R.drawable.bg_tab_selected : 0);
         if (tabKeyboard != null) tabKeyboard.setBackgroundResource(showKeyboard ? R.drawable.bg_tab_selected : 0);
+        if (tabSettings != null) tabSettings.setBackgroundResource(showSettings ? R.drawable.bg_tab_selected : 0);
 
         if (showHistory) {
             refreshHistoryList();
@@ -736,14 +819,8 @@ public class RustInputMethodService extends InputMethodService {
             return;
         }
 
-        LlmSettings settings;
-        try {
-            settings = llmSettingsStore.read();
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Failed to read LLM settings", e);
-            showRewriteFailure(getString(R.string.toast_rewrite_failed));
-            return;
-        }
+        LlmSettings settings = checkRewritePreconditions();
+        if (settings == null) return;
 
         rewriteCancelRequested = false;
         isRewriting = true;
@@ -939,24 +1016,7 @@ public class RustInputMethodService extends InputMethodService {
 
     public void onTextTranscribed(String text) {
         mainHandler.post(() -> {
-            InputConnection ic = getCurrentInputConnection();
-            if (ic != null) {
-                String committed = text + " ";
-                ic.commitText(committed, 1);
-
-                if (new File(getFilesDir(), "select_transcription").exists()) {
-                    ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
-                    if (et != null) {
-                        int end = et.selectionStart;
-                        int start = end - committed.length();
-                        if (start >= 0) {
-                            ic.setSelection(start, end);
-                        }
-                    }
-                }
-            }
-
-            // Save raw transcript to history
+            // Always save raw transcript to history first.
             if (historyStore != null && text != null && !text.isEmpty()) {
                 historyStore.insert(text);
                 if (panelExpanded) {
@@ -966,12 +1026,118 @@ public class RustInputMethodService extends InputMethodService {
 
             awaitingTranscriptionResult = false;
             isTranscribing = false;
-            updateRecordButtonUI(false);
-            if (pendingSendAfterTranscription) {
-                pendingSendAfterTranscription = false;
-                performImeEnterAction();
+
+            if (isAutoRewriteEnabled()) {
+                LlmSettings settings = checkRewritePreconditions();
+                if (settings == null) {
+                    // Can't rewrite — fall back to committing raw text.
+                    commitTranscription(text, true);
+                    updateRecordButtonUI(false);
+                    if (pendingSendAfterTranscription) {
+                        pendingSendAfterTranscription = false;
+                        performImeEnterAction();
+                    }
+                    return;
+                }
+
+                // Show rewrite spinner.
+                isRewriting = true;
+                updateRecordButtonUI(false);
+
+                Call call = openAiChatClient.rewriteAsync(settings, text, new OpenAiChatClient.Callback() {
+                    @Override
+                    public void onSuccess(String rewritten) {
+                        mainHandler.post(() -> {
+                            isRewriting = false;
+                            updateUiState();
+                            commitTranscription(rewritten, false);
+                            if (pendingSendAfterTranscription) {
+                                pendingSendAfterTranscription = false;
+                                performImeEnterAction();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(String message, Throwable error) {
+                        mainHandler.post(() -> {
+                            isRewriting = false;
+                            updateUiState();
+                            showRewriteFailure(message);
+                            // Fall back to committing raw text.
+                            commitTranscription(text, true);
+                            if (pendingSendAfterTranscription) {
+                                pendingSendAfterTranscription = false;
+                                performImeEnterAction();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onCanceled() {
+                        mainHandler.post(() -> {
+                            isRewriting = false;
+                            updateUiState();
+                            // Fall back to committing raw text.
+                            commitTranscription(text, true);
+                            if (pendingSendAfterTranscription) {
+                                pendingSendAfterTranscription = false;
+                                performImeEnterAction();
+                            }
+                        });
+                    }
+                });
+                // Store the call so it can be canceled if the keyboard hides.
+                inFlightRewriteCall = call;
+            } else {
+                commitTranscription(text, true);
+                updateRecordButtonUI(false);
+                if (pendingSendAfterTranscription) {
+                    pendingSendAfterTranscription = false;
+                    performImeEnterAction();
+                }
             }
         });
+    }
+
+    private void commitTranscription(String text, boolean selectAfterCommit) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+
+        String committed = text + " ";
+
+        if (isPasteModeEnabled()) {
+            // Clipboard paste: put text on clipboard and simulate Ctrl+V.
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("transcription", committed));
+                long now = android.os.SystemClock.uptimeMillis();
+                int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;
+                ic.sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN,
+                        KeyEvent.KEYCODE_V, 0, meta));
+                ic.sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP,
+                        KeyEvent.KEYCODE_V, 0, meta));
+            }
+        } else {
+            ic.commitText(committed, 1);
+        }
+
+        if (selectAfterCommit && !isPasteModeEnabled()
+                && new File(getFilesDir(), "select_transcription").exists()) {
+            ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
+            if (et != null) {
+                int end = et.selectionStart;
+                int start = end - committed.length();
+                if (start >= 0) {
+                    ic.setSelection(start, end);
+                }
+            }
+        }
+    }
+
+    private boolean isPasteModeEnabled() {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_PASTE_MODE, false);
     }
 
     public void onAudioLevel(float level) {
@@ -979,5 +1145,59 @@ public class RustInputMethodService extends InputMethodService {
 
     private boolean isPauseAudioEnabled() {
         return new File(getFilesDir(), "pause_audio").exists();
+    }
+
+    private boolean isAutoRewriteEnabled() {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_REWRITE, false);
+    }
+
+    private void persistUiState() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(PREF_PANEL_EXPANDED, panelExpanded)
+                .putInt(PREF_ACTIVE_TAB, activeTab)
+                .apply();
+    }
+
+    /**
+     * Check that we have a usable network connection.
+     * Returns true if connected, false otherwise.
+     */
+    private boolean hasNetworkConnection() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return false;
+        android.net.Network network = cm.getActiveNetwork();
+        if (network == null) return false;
+        NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+    }
+
+    /**
+     * Pre-flight check for rewrite: verifies network and LLM config.
+     * Shows a toast and returns null if either is missing; returns valid
+     * LlmSettings otherwise.
+     */
+    private LlmSettings checkRewritePreconditions() {
+        if (!hasNetworkConnection()) {
+            Toast.makeText(this, R.string.toast_rewrite_no_network, Toast.LENGTH_SHORT).show();
+            return null;
+        }
+
+        LlmSettings settings;
+        try {
+            settings = llmSettingsStore.read();
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to read LLM settings", e);
+            showRewriteFailure(getString(R.string.toast_rewrite_failed));
+            return null;
+        }
+
+        if (!settings.hasRequiredFields()) {
+            Toast.makeText(this, R.string.toast_rewrite_no_llm_config, Toast.LENGTH_SHORT).show();
+            return null;
+        }
+
+        return settings;
     }
 }

@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#F0F0F0"
+    android:background="@color/ime_background"
     android:padding="8dp">
 
     <LinearLayout
@@ -28,7 +28,7 @@
                 android:layout_height="match_parent"
                 android:src="@drawable/ic_expand_panel"
                 android:scaleType="centerInside"
-                android:tint="#333333" />
+                android:tint="@color/ime_icon_tint" />
         </FrameLayout>
 
         <LinearLayout
@@ -45,6 +45,7 @@
                 android:layout_weight="1"
                 android:src="@drawable/ic_space"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:background="@drawable/bg_backspace"
                 android:clickable="true"
                 android:focusable="true"
@@ -86,6 +87,7 @@
             android:layout_height="32dp"
             android:src="@drawable/ic_enter"
             android:scaleType="centerInside"
+            android:tint="@color/ime_icon_tint"
             android:background="@drawable/bg_backspace"
             android:clickable="true"
             android:focusable="true"
@@ -98,7 +100,7 @@
             android:layout_height="32dp"
             android:text="⌫"
             android:textSize="24sp"
-            android:textColor="#333333"
+            android:textColor="@color/ime_key_text"
             android:background="@drawable/bg_backspace"
             android:gravity="center"
             android:clickable="true"
@@ -125,26 +127,40 @@
             android:paddingBottom="4dp">
 
             <ImageView
+                android:id="@+id/tab_keyboard"
+                android:layout_width="32dp"
+                android:layout_height="28dp"
+                android:src="@drawable/ic_keyboard_tab"
+                android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
+                android:background="@drawable/bg_tab_selected"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/tab_keyboard" />
+
+            <ImageView
                 android:id="@+id/tab_history"
                 android:layout_width="32dp"
                 android:layout_height="28dp"
+                android:layout_marginStart="4dp"
                 android:src="@drawable/ic_history"
                 android:scaleType="centerInside"
-                android:background="@drawable/bg_tab_selected"
+                android:tint="@color/ime_icon_tint"
                 android:clickable="true"
                 android:focusable="true"
                 android:contentDescription="@string/tab_history" />
 
             <ImageView
-                android:id="@+id/tab_keyboard"
+                android:id="@+id/tab_settings"
                 android:layout_width="32dp"
                 android:layout_height="28dp"
                 android:layout_marginStart="4dp"
-                android:src="@drawable/ic_keyboard_tab"
+                android:src="@drawable/ic_settings_tab"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:clickable="true"
                 android:focusable="true"
-                android:contentDescription="@string/tab_keyboard" />
+                android:contentDescription="@string/tab_settings" />
         </LinearLayout>
 
         <!-- Content area: stacked tab contents; only one visible at a time -->
@@ -154,11 +170,18 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- History panel -->
+            <!-- Keyboard panel (shown by default) -->
+            <dev.surma.parakeeb.SoftKeyboardView
+                android:id="@+id/panel_keyboard"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- History panel (hidden by default) -->
             <FrameLayout
                 android:id="@+id/panel_history"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="match_parent"
+                android:visibility="gone">
 
                 <ListView
                     android:id="@+id/history_list"
@@ -176,16 +199,95 @@
                     android:gravity="center"
                     android:text="@string/history_empty"
                     android:textSize="13sp"
-                    android:textColor="#999999"
+                    android:textColor="@color/ime_text_hint"
                     android:visibility="gone" />
             </FrameLayout>
 
-            <!-- Keyboard panel (hidden by default) -->
-            <dev.surma.parakeeb.SoftKeyboardView
-                android:id="@+id/panel_keyboard"
+            <!-- Settings panel (hidden by default) -->
+            <ScrollView
+                android:id="@+id/panel_settings"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:visibility="gone" />
+                android:visibility="gone"
+                android:padding="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_auto_rewrite"
+                                android:textSize="14sp"
+                                android:textColor="@color/ime_key_text" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_auto_rewrite_desc"
+                                android:textSize="11sp"
+                                android:textColor="@color/ime_text_hint" />
+                        </LinearLayout>
+
+                        <Switch
+                            android:id="@+id/setting_auto_rewrite_toggle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_paste_mode"
+                                android:textSize="14sp"
+                                android:textColor="@color/ime_key_text" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_paste_mode_desc"
+                                android:textSize="11sp"
+                                android:textColor="@color/ime_text_hint" />
+                        </LinearLayout>
+
+                        <Switch
+                            android:id="@+id/setting_paste_mode_toggle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </ScrollView>
         </FrameLayout>
     </LinearLayout>
 

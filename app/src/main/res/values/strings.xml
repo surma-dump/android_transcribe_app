@@ -58,5 +58,15 @@
     <string name="ime_toggle_panel">Toggle panel</string>
     <string name="tab_history">History</string>
     <string name="tab_keyboard">Keyboard</string>
+    <string name="tab_settings">Settings</string>
     <string name="history_empty">No transcriptions yet</string>
+
+    <string name="setting_auto_rewrite">Auto-rewrite</string>
+    <string name="setting_auto_rewrite_desc">Automatically rewrite transcriptions with AI before pasting</string>
+
+    <string name="setting_paste_mode">Paste mode</string>
+    <string name="setting_paste_mode_desc">Insert text via clipboard paste instead of typing. Better for terminals and code editors.</string>
+
+    <string name="toast_rewrite_no_network">No internet connection</string>
+    <string name="toast_rewrite_no_llm_config">LLM not configured</string>
 </resources>
