@@ -17,7 +17,7 @@
         android:maxLines="2"
         android:ellipsize="end"
         android:textSize="14sp"
-        android:textColor="#212121" />
+        android:textColor="@color/ime_key_text" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -31,13 +31,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="11sp"
-            android:textColor="#757575" />
+            android:textColor="@color/ime_text_hint" />
 
         <TextView
             android:id="@+id/history_char_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="11sp"
-            android:textColor="#757575" />
+            android:textColor="@color/ime_text_hint" />
     </LinearLayout>
 </LinearLayout>
