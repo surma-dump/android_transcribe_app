@@ -9,4 +9,17 @@
     <color name="white">#FFFFFF</color>
     <color name="record_red">#F44336</color>
     <color name="overlay_bg">#99000000</color>
+
+    <!-- IME theme colors (light) -->
+    <color name="ime_background">#F0F0F0</color>
+    <color name="ime_key_bg">#DDDDDD</color>
+    <color name="ime_key_bg_pressed">#BBBBBB</color>
+    <color name="ime_key_text">#333333</color>
+    <color name="ime_text_hint">#999999</color>
+    <color name="ime_icon_tint">#333333</color>
+    <color name="ime_tab_selected_bg">#CCCCCC</color>
+    <color name="ime_surface">#FFFFFF</color>
+    <color name="ime_modifier_active_bg">#2196F3</color>
+    <color name="ime_modifier_active_text">#FFFFFF</color>
+    <color name="ime_ripple_color">#40000000</color>
 </resources>

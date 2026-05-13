@@ -621,9 +621,9 @@ public class RustInputMethodService extends InputMethodService {
 
         if (recordIcon != null) {
             if (recording) {
-                recordIcon.setColorFilter(0xFFF44336);
+                recordIcon.setColorFilter(getResources().getColor(R.color.record_red, getTheme()));
             } else {
-                recordIcon.setColorFilter(0xFF2196F3);
+                recordIcon.setColorFilter(getResources().getColor(R.color.colorPrimary, getTheme()));
             }
             recordIcon.setVisibility(showSpinner ? View.INVISIBLE : View.VISIBLE);
         }

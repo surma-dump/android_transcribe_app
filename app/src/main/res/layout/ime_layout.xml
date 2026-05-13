@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#F0F0F0"
+    android:background="@color/ime_background"
     android:padding="8dp">
 
     <LinearLayout
@@ -28,7 +28,7 @@
                 android:layout_height="match_parent"
                 android:src="@drawable/ic_expand_panel"
                 android:scaleType="centerInside"
-                android:tint="#333333" />
+                android:tint="@color/ime_icon_tint" />
         </FrameLayout>
 
         <LinearLayout
@@ -45,6 +45,7 @@
                 android:layout_weight="1"
                 android:src="@drawable/ic_space"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:background="@drawable/bg_backspace"
                 android:clickable="true"
                 android:focusable="true"
@@ -86,6 +87,7 @@
             android:layout_height="32dp"
             android:src="@drawable/ic_enter"
             android:scaleType="centerInside"
+            android:tint="@color/ime_icon_tint"
             android:background="@drawable/bg_backspace"
             android:clickable="true"
             android:focusable="true"
@@ -98,7 +100,7 @@
             android:layout_height="32dp"
             android:text="⌫"
             android:textSize="24sp"
-            android:textColor="#333333"
+            android:textColor="@color/ime_key_text"
             android:background="@drawable/bg_backspace"
             android:gravity="center"
             android:clickable="true"
@@ -130,6 +132,7 @@
                 android:layout_height="28dp"
                 android:src="@drawable/ic_keyboard_tab"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:background="@drawable/bg_tab_selected"
                 android:clickable="true"
                 android:focusable="true"
@@ -142,6 +145,7 @@
                 android:layout_marginStart="4dp"
                 android:src="@drawable/ic_history"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:clickable="true"
                 android:focusable="true"
                 android:contentDescription="@string/tab_history" />
@@ -153,6 +157,7 @@
                 android:layout_marginStart="4dp"
                 android:src="@drawable/ic_settings_tab"
                 android:scaleType="centerInside"
+                android:tint="@color/ime_icon_tint"
                 android:clickable="true"
                 android:focusable="true"
                 android:contentDescription="@string/tab_settings" />
@@ -194,7 +199,7 @@
                     android:gravity="center"
                     android:text="@string/history_empty"
                     android:textSize="13sp"
-                    android:textColor="#999999"
+                    android:textColor="@color/ime_text_hint"
                     android:visibility="gone" />
             </FrameLayout>
 
@@ -230,14 +235,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="@string/setting_auto_rewrite"
                                 android:textSize="14sp"
-                                android:textColor="#333333" />
+                                android:textColor="@color/ime_key_text" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/setting_auto_rewrite_desc"
                                 android:textSize="11sp"
-                                android:textColor="#999999" />
+                                android:textColor="@color/ime_text_hint" />
                         </LinearLayout>
 
                         <Switch

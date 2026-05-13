@@ -337,7 +337,8 @@ public class SoftKeyboardView extends LinearLayout {
             shiftKeyView.setBackgroundResource(
                     isShifted ? R.drawable.bg_modifier_active
                               : R.drawable.bg_key_normal);
-            shiftKeyView.setTextColor(isShifted ? 0xFFFFFFFF : 0xFF333333);
+            shiftKeyView.setTextColor(getColor(isShifted
+                    ? R.color.ime_modifier_active_text : R.color.ime_key_text));
         }
         // Update letter key labels.
         for (TextView tv : letterKeys) {
@@ -405,7 +406,8 @@ public class SoftKeyboardView extends LinearLayout {
         btn.setBackgroundResource(
                 active ? R.drawable.bg_modifier_active
                        : R.drawable.bg_key_normal);
-        btn.setTextColor(active ? 0xFFFFFFFF : 0xFF333333);
+        btn.setTextColor(getColor(active
+                ? R.color.ime_modifier_active_text : R.color.ime_key_text));
     }
 
     private int activeMetaState() {
@@ -470,7 +472,7 @@ public class SoftKeyboardView extends LinearLayout {
         TextView tv = new TextView(context);
         tv.setText(label);
         tv.setTextSize(13);
-        tv.setTextColor(0xFF333333);
+        tv.setTextColor(getColor(R.color.ime_key_text));
         tv.setGravity(Gravity.CENTER);
         tv.setBackgroundResource(R.drawable.bg_key_normal);
         tv.setClickable(true);
@@ -501,5 +503,9 @@ public class SoftKeyboardView extends LinearLayout {
     private int dpToPx(int dp) {
         float density = getResources().getDisplayMetrics().density;
         return Math.round(dp * density);
+    }
+
+    private int getColor(int resId) {
+        return getContext().getResources().getColor(resId, getContext().getTheme());
     }
 }
