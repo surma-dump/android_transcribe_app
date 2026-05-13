@@ -251,6 +251,41 @@
                             android:layout_height="wrap_content" />
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_paste_mode"
+                                android:textSize="14sp"
+                                android:textColor="@color/ime_key_text" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/setting_paste_mode_desc"
+                                android:textSize="11sp"
+                                android:textColor="@color/ime_text_hint" />
+                        </LinearLayout>
+
+                        <Switch
+                            android:id="@+id/setting_paste_mode_toggle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
                 </LinearLayout>
             </ScrollView>
         </FrameLayout>
