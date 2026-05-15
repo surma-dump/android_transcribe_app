@@ -1,12 +1,11 @@
 package dev.surma.parakeeb;
 
 final class LlmPromptRenderer {
-    private static final String DEFAULT_INSTRUCTIONS = "(none)";
 
     private LlmPromptRenderer() {
     }
 
-    static String systemPrompt() {
+    static String defaultSystemPrompt() {
         return "You clean up speech-to-text dictation. Your job is to produce readable text "
                 + "that faithfully represents what the speaker said.\n\n"
                 + "Rules:\n"
@@ -25,13 +24,16 @@ final class LlmPromptRenderer {
                 + "Return the final text only inside <rewritten_text>...</rewritten_text>.";
     }
 
-    static String rewriteUserPrompt(String extraInstructions, String coreText) {
-        String instructions = normalizeExtraInstructions(extraInstructions);
-        return "Additional instructions:\n"
-                + "<user_instructions>\n"
-                + instructions + "\n"
-                + "</user_instructions>\n\n"
-                + "Text to rewrite:\n"
+    /**
+     * Returns the custom prompt if non-empty, otherwise the default.
+     */
+    static String effectiveSystemPrompt(String customPrompt) {
+        String trimmed = safe(customPrompt).trim();
+        return trimmed.isEmpty() ? defaultSystemPrompt() : trimmed;
+    }
+
+    static String rewriteUserPrompt(String coreText) {
+        return "Text to rewrite:\n"
                 + "<input_text>\n"
                 + safe(coreText) + "\n"
                 + "</input_text>";
@@ -43,11 +45,6 @@ final class LlmPromptRenderer {
 
     static String testUserPrompt() {
         return "Reply now.";
-    }
-
-    private static String normalizeExtraInstructions(String extraInstructions) {
-        String trimmed = safe(extraInstructions).trim();
-        return trimmed.isEmpty() ? DEFAULT_INSTRUCTIONS : trimmed;
     }
 
     private static String safe(String value) {

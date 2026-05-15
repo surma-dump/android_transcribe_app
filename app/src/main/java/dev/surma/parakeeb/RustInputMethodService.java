@@ -21,7 +21,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
-import android.widget.EditText;
+import android.content.Intent;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -68,16 +68,8 @@ public class RustInputMethodService extends InputMethodService {
     private ImageView tabKeyboard;
     private ImageView tabSettings;
     private ScrollView panelSettings;
-    // Field editor views
-    private View panelFieldEditor;
-    private TextView fieldEditorLabel;
-    private EditText fieldEditorInput;
-    private TextView fieldEditorDone;
-    private SoftKeyboardView fieldEditorKeyboard;
-    private String editingFieldKey;
     private View imeRootView;
     private boolean panelExpanded = false;
-    private boolean fieldEditorActive = false;
     private static final int TAB_KEYBOARD = 0;
     private static final int TAB_HISTORY  = 1;
     private static final int TAB_SETTINGS = 2;
@@ -179,19 +171,6 @@ public class RustInputMethodService extends InputMethodService {
             tabKeyboard = view.findViewById(R.id.tab_keyboard);
             tabSettings = view.findViewById(R.id.tab_settings);
 
-            // Field editor views
-            panelFieldEditor = view.findViewById(R.id.panel_field_editor);
-            fieldEditorLabel = view.findViewById(R.id.field_editor_label);
-            fieldEditorInput = view.findViewById(R.id.field_editor_input);
-            fieldEditorDone = view.findViewById(R.id.field_editor_done);
-            fieldEditorKeyboard = view.findViewById(R.id.field_editor_keyboard);
-            if (fieldEditorKeyboard != null && fieldEditorInput != null) {
-                fieldEditorKeyboard.setDirectTarget(fieldEditorInput);
-            }
-            if (fieldEditorDone != null) {
-                fieldEditorDone.setOnClickListener(v2 -> finishFieldEditor());
-            }
-
             historyAdapter = new HistoryAdapter(this);
             historyList.setAdapter(historyAdapter);
 
@@ -215,13 +194,13 @@ public class RustInputMethodService extends InputMethodService {
 
             // Wire LLM text settings
             wireTextSetting(view, R.id.setting_llm_base_url_row,
-                    R.string.llm_base_url, "llm_base_url", false);
+                    R.string.llm_base_url, "llm_base_url", false, false);
             wireTextSetting(view, R.id.setting_llm_model_row,
-                    R.string.llm_model, "llm_model", false);
+                    R.string.llm_model, "llm_model", false, false);
             wireTextSetting(view, R.id.setting_llm_api_key_row,
-                    R.string.llm_api_key, "llm_api_key", true);
-            wireTextSetting(view, R.id.setting_llm_instructions_row,
-                    R.string.llm_instructions, "llm_instructions", false);
+                    R.string.llm_api_key, "llm_api_key", true, false);
+            wireTextSetting(view, R.id.setting_llm_system_prompt_row,
+                    R.string.llm_system_prompt, "llm_system_prompt", false, true);
 
             // Wire LLM Test button
             View llmTestBtn = view.findViewById(R.id.btn_llm_test);
@@ -343,6 +322,7 @@ public class RustInputMethodService extends InputMethodService {
     public void onWindowShown() {
         super.onWindowShown();
         restorePanelState();
+        refreshTextSettingDisplays();
         if (!isRecording && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_AUTO_RECORD, false)) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
@@ -363,9 +343,6 @@ public class RustInputMethodService extends InputMethodService {
         super.onWindowHidden();
         finishSpaceTouch(false);
         cancelRewrite(false);
-        if (fieldEditorActive) {
-            finishFieldEditor();
-        }
         collapsePanel();
         clearInputSessionState();
         if (isRecording) {
@@ -744,10 +721,6 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private void switchTab(int tab) {
-        if (fieldEditorActive) {
-            finishFieldEditor();
-            if (tab == TAB_SETTINGS) return; // finishFieldEditor already shows settings
-        }
         if (activeTab == tab) return;
         activeTab = tab;
         applyTabVisibility();
@@ -762,8 +735,6 @@ public class RustInputMethodService extends InputMethodService {
         if (panelHistory  != null) panelHistory.setVisibility(showHistory   ? View.VISIBLE : View.GONE);
         if (panelKeyboard != null) panelKeyboard.setVisibility(showKeyboard ? View.VISIBLE : View.GONE);
         if (panelSettings != null) panelSettings.setVisibility(showSettings ? View.VISIBLE : View.GONE);
-        if (panelFieldEditor != null) panelFieldEditor.setVisibility(View.GONE);
-
         if (tabHistory  != null) tabHistory.setBackgroundResource(showHistory   ? R.drawable.bg_tab_selected : 0);
         if (tabKeyboard != null) tabKeyboard.setBackgroundResource(showKeyboard ? R.drawable.bg_tab_selected : 0);
         if (tabSettings != null) tabSettings.setBackgroundResource(showSettings ? R.drawable.bg_tab_selected : 0);
@@ -804,21 +775,25 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private void wireTextSetting(View root, int rowId, int titleRes,
-                                  String fieldKey, boolean masked) {
+                                  String fieldKey, boolean masked, boolean isSystemPrompt) {
         View row = root.findViewById(rowId);
         if (row == null) return;
         TextView title = row.findViewById(R.id.setting_title);
         TextView value = row.findViewById(R.id.setting_value);
         if (title != null) title.setText(titleRes);
         updateTextSettingDisplay(value, fieldKey, masked);
-        row.setOnClickListener(v -> openFieldEditor(titleRes, fieldKey, masked));
+        row.setOnClickListener(v -> launchFieldEditor(titleRes, fieldKey, isSystemPrompt));
     }
 
     private void updateTextSettingDisplay(TextView valueView, String fieldKey, boolean masked) {
         if (valueView == null) return;
         String current = readLlmField(fieldKey);
         if (current == null || current.isEmpty()) {
-            valueView.setText(R.string.setting_value_not_set);
+            if ("llm_system_prompt".equals(fieldKey)) {
+                valueView.setText(R.string.setting_value_default);
+            } else {
+                valueView.setText(R.string.setting_value_not_set);
+            }
         } else if (masked) {
             valueView.setText(R.string.setting_value_hidden);
         } else {
@@ -827,105 +802,23 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private String readLlmField(String fieldKey) {
+        LlmSettings s = llmSettingsStore.read();
         switch (fieldKey) {
-            case "llm_base_url": {
-                LlmSettings s = llmSettingsStore.read();
-                return s.baseUrl;
-            }
-            case "llm_model": {
-                LlmSettings s = llmSettingsStore.read();
-                return s.model;
-            }
-            case "llm_api_key": {
-                LlmSettings s = llmSettingsStore.read();
-                return s.apiKey;
-            }
-            case "llm_instructions": {
-                LlmSettings s = llmSettingsStore.read();
-                return s.extraInstructions;
-            }
-            default:
-                return "";
+            case "llm_base_url": return s.baseUrl;
+            case "llm_model": return s.model;
+            case "llm_api_key": return s.apiKey;
+            case "llm_system_prompt": return s.systemPrompt;
+            default: return "";
         }
     }
 
-    private void saveLlmField(String fieldKey, String value) {
-        LlmSettings current = llmSettingsStore.read();
-        LlmSettings updated;
-        switch (fieldKey) {
-            case "llm_base_url":
-                updated = new LlmSettings(value, current.apiKey, current.model, current.extraInstructions);
-                break;
-            case "llm_model":
-                updated = new LlmSettings(current.baseUrl, current.apiKey, value, current.extraInstructions);
-                break;
-            case "llm_api_key":
-                updated = new LlmSettings(current.baseUrl, value, current.model, current.extraInstructions);
-                break;
-            case "llm_instructions":
-                updated = new LlmSettings(current.baseUrl, current.apiKey, current.model, value);
-                break;
-            default:
-                return;
-        }
-        llmSettingsStore.save(updated);
-    }
-
-    private void openFieldEditor(int titleRes, String fieldKey, boolean masked) {
-        if (panelFieldEditor == null || fieldEditorInput == null || fieldEditorLabel == null) return;
-
-        editingFieldKey = fieldKey;
-        fieldEditorActive = true;
-        fieldEditorLabel.setText(titleRes);
-
-        // Load current value
-        String currentValue = readLlmField(fieldKey);
-        fieldEditorInput.setText(currentValue != null ? currentValue : "");
-        if (fieldEditorInput.getText() != null) {
-            fieldEditorInput.setSelection(fieldEditorInput.getText().length());
-        }
-
-        // Expand panel taller for editing
-        if (expandedPanel != null) {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int editorHeight = (int) (dm.heightPixels * 0.55);
-            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) expandedPanel.getLayoutParams();
-            lp.height = editorHeight;
-            expandedPanel.setLayoutParams(lp);
-        }
-
-        // Show field editor, hide other panels
-        panelFieldEditor.setVisibility(View.VISIBLE);
-        if (panelSettings != null) panelSettings.setVisibility(View.GONE);
-        if (panelHistory != null) panelHistory.setVisibility(View.GONE);
-        if (panelKeyboard != null) panelKeyboard.setVisibility(View.GONE);
-    }
-
-    private void finishFieldEditor() {
-        if (editingFieldKey != null && fieldEditorInput != null) {
-            String value = fieldEditorInput.getText().toString();
-            saveLlmField(editingFieldKey, value);
-        }
-
-        fieldEditorActive = false;
-        editingFieldKey = null;
-
-        if (panelFieldEditor != null) {
-            panelFieldEditor.setVisibility(View.GONE);
-        }
-
-        // Restore panel height
-        if (expandedPanel != null) {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int panelHeight = dm.heightPixels / 3;
-            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) expandedPanel.getLayoutParams();
-            lp.height = panelHeight;
-            expandedPanel.setLayoutParams(lp);
-        }
-
-        // Refresh the text setting displays and show settings panel
-        refreshTextSettingDisplays();
-        switchTab(TAB_SETTINGS);
+    private void launchFieldEditor(int titleRes, String fieldKey, boolean isSystemPrompt) {
+        Intent intent = new Intent(this, FieldEditorActivity.class);
+        intent.putExtra(FieldEditorActivity.EXTRA_FIELD_KEY, fieldKey);
+        intent.putExtra(FieldEditorActivity.EXTRA_TITLE, getString(titleRes));
+        intent.putExtra(FieldEditorActivity.EXTRA_IS_SYSTEM_PROMPT, isSystemPrompt);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 
     private void refreshTextSettingDisplays() {
@@ -933,7 +826,7 @@ public class RustInputMethodService extends InputMethodService {
         refreshOneTextSetting(imeRootView, R.id.setting_llm_base_url_row, "llm_base_url", false);
         refreshOneTextSetting(imeRootView, R.id.setting_llm_model_row, "llm_model", false);
         refreshOneTextSetting(imeRootView, R.id.setting_llm_api_key_row, "llm_api_key", true);
-        refreshOneTextSetting(imeRootView, R.id.setting_llm_instructions_row, "llm_instructions", false);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_system_prompt_row, "llm_system_prompt", false);
     }
 
     private void refreshOneTextSetting(View root, int rowId, String fieldKey, boolean masked) {

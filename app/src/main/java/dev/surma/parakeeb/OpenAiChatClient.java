@@ -43,8 +43,9 @@ final class OpenAiChatClient {
     }
 
     Call rewriteAsync(LlmSettings settings, String coreText, Callback callback) {
-        String userPrompt = LlmPromptRenderer.rewriteUserPrompt(settings.extraInstructions, coreText);
-        return enqueueChatCompletion(settings, LlmPromptRenderer.systemPrompt(), userPrompt, callback);
+        String systemPrompt = LlmPromptRenderer.effectiveSystemPrompt(settings.systemPrompt);
+        String userPrompt = LlmPromptRenderer.rewriteUserPrompt(coreText);
+        return enqueueChatCompletion(settings, systemPrompt, userPrompt, callback);
     }
 
     Call testConnectionAsync(LlmSettings settings, Callback callback) {

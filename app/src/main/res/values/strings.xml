@@ -38,9 +38,9 @@
     <string name="llm_model_hint">gpt-4.1-mini</string>
     <string name="llm_api_key">API key</string>
     <string name="llm_api_key_hint">sk-…</string>
-    <string name="llm_instructions">Additional instructions</string>
-    <string name="llm_instructions_hint">E.g. remove filler words, keep tone casual</string>
-    <string name="llm_helper_text">The app uses a built-in dictation cleanup prompt. Add extra instructions here to customize the rewrite.</string>
+    <string name="llm_system_prompt">System prompt</string>
+    <string name="llm_system_prompt_desc">The full prompt sent to the LLM for rewriting</string>
+    <string name="llm_helper_text">Configure the LLM connection for AI rewrite.</string>
     <string name="btn_llm_save">Save LLM Settings</string>
     <string name="btn_llm_test">Test Connection</string>
     <string name="btn_llm_testing">Testing…</string>
@@ -74,4 +74,8 @@
     <string name="main_settings_hint">All settings are now in the keyboard. Expand the keyboard panel and tap the settings tab to configure voice input, AI rewrite, and LLM connection.</string>
     <string name="setting_value_not_set">(not set)</string>
     <string name="setting_value_hidden">••••••</string>
+    <string name="setting_value_default">(default)</string>
+    <string name="editor_reset">Reset to default</string>
+    <string name="editor_cancel">Cancel</string>
+    <string name="editor_save">Save</string>
 </resources>

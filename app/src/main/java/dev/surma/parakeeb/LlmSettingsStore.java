@@ -11,7 +11,7 @@ final class LlmSettingsStore {
     private static final String SECURE_PREFS_NAME = "llm_secure_settings";
     private static final String KEY_BASE_URL = "base_url";
     private static final String KEY_MODEL = "model";
-    private static final String KEY_EXTRA_INSTRUCTIONS = "extra_instructions";
+    private static final String KEY_SYSTEM_PROMPT = "system_prompt";
     private static final String KEY_API_KEY = "api_key";
 
     private final Context appContext;
@@ -27,7 +27,7 @@ final class LlmSettingsStore {
                 prefs.getString(KEY_BASE_URL, ""),
                 securePrefs.getString(KEY_API_KEY, ""),
                 prefs.getString(KEY_MODEL, ""),
-                prefs.getString(KEY_EXTRA_INSTRUCTIONS, ""));
+                prefs.getString(KEY_SYSTEM_PROMPT, ""));
     }
 
     void save(LlmSettings settings) {
@@ -37,7 +37,7 @@ final class LlmSettingsStore {
         prefs.edit()
                 .putString(KEY_BASE_URL, settings.baseUrl)
                 .putString(KEY_MODEL, settings.model)
-                .putString(KEY_EXTRA_INSTRUCTIONS, settings.extraInstructions)
+                .putString(KEY_SYSTEM_PROMPT, settings.systemPrompt)
                 .commit();
 
         securePrefs.edit()

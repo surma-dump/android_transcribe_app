@@ -259,9 +259,9 @@
                     <include layout="@layout/setting_text"
                         android:id="@+id/setting_llm_api_key_row" />
 
-                    <!-- LLM Extra Instructions -->
+                    <!-- LLM System Prompt -->
                     <include layout="@layout/setting_text"
-                        android:id="@+id/setting_llm_instructions_row" />
+                        android:id="@+id/setting_llm_system_prompt_row" />
 
                     <!-- LLM Test Connection button -->
                     <TextView
@@ -280,70 +280,6 @@
 
                 </LinearLayout>
             </ScrollView>
-
-            <!-- Field editor overlay (hidden by default) -->
-            <LinearLayout
-                android:id="@+id/panel_field_editor"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <!-- Header: field label + Done button -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="6dp">
-
-                    <TextView
-                        android:id="@+id/field_editor_label"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/ime_key_text" />
-
-                    <TextView
-                        android:id="@+id/field_editor_done"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/field_editor_done"
-                        android:textSize="13sp"
-                        android:textColor="@color/colorPrimary"
-                        android:textStyle="bold"
-                        android:padding="6dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-                </LinearLayout>
-
-                <!-- EditText for the field value -->
-                <EditText
-                    android:id="@+id/field_editor_input"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:gravity="top|start"
-                    android:textSize="13sp"
-                    android:textColor="@color/ime_key_text"
-                    android:background="@drawable/bg_backspace"
-                    android:padding="8dp"
-                    android:layout_marginStart="6dp"
-                    android:layout_marginEnd="6dp"
-                    android:inputType="textMultiLine|textNoSuggestions"
-                    android:importantForAutofill="no"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true" />
-
-                <!-- Keyboard for typing into the field -->
-                <dev.surma.parakeeb.SoftKeyboardView
-                    android:id="@+id/field_editor_keyboard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp" />
-            </LinearLayout>
 
         </FrameLayout>
     </LinearLayout>
