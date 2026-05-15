@@ -4,12 +4,14 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.InputConnection;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Space;
 import android.widget.TextView;
@@ -42,6 +44,7 @@ public class SoftKeyboardView extends LinearLayout {
     private boolean metaActive  = false;
 
     private InputConnectionProvider icProvider;
+    private EditText directTarget;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable deleteRepeatRunnable;
 
@@ -67,6 +70,15 @@ public class SoftKeyboardView extends LinearLayout {
 
     public void setInputConnectionProvider(InputConnectionProvider provider) {
         this.icProvider = provider;
+    }
+
+    /**
+     * When set, all character/delete input is routed directly to this EditText
+     * instead of through the InputConnection. Set to null to restore normal
+     * InputConnection routing.
+     */
+    public void setDirectTarget(EditText target) {
+        this.directTarget = target;
     }
 
     // -----------------------------------------------------------------------
@@ -295,6 +307,18 @@ public class SoftKeyboardView extends LinearLayout {
     // -----------------------------------------------------------------------
 
     private void onCharKey(char ch) {
+        if (directTarget != null) {
+            char out = ch;
+            if (isShifted && Character.isLetter(ch)) {
+                out = Character.toUpperCase(ch);
+            }
+            Editable editable = directTarget.getText();
+            int start = directTarget.getSelectionStart();
+            int end = directTarget.getSelectionEnd();
+            editable.replace(Math.max(start, 0), Math.max(end, 0), String.valueOf(out));
+            return;
+        }
+
         InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
         if (ic == null) return;
 
@@ -314,6 +338,13 @@ public class SoftKeyboardView extends LinearLayout {
     }
 
     private void onEnterKey() {
+        if (directTarget != null) {
+            Editable editable = directTarget.getText();
+            int start = directTarget.getSelectionStart();
+            int end = directTarget.getSelectionEnd();
+            editable.replace(Math.max(start, 0), Math.max(end, 0), "\n");
+            return;
+        }
         InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
         if (ic != null) {
             sendKeyEvent(ic, KeyEvent.KEYCODE_ENTER);
@@ -347,14 +378,29 @@ public class SoftKeyboardView extends LinearLayout {
         }
     }
 
+    private void performDelete() {
+        if (directTarget != null) {
+            Editable editable = directTarget.getText();
+            int start = directTarget.getSelectionStart();
+            int end = directTarget.getSelectionEnd();
+            if (start == end && start > 0) {
+                editable.delete(start - 1, start);
+            } else if (start < end) {
+                editable.delete(start, end);
+            }
+            return;
+        }
+        InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
+        if (ic != null) {
+            sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
+        }
+    }
+
     private void setupDeleteKey(TextView delKey) {
         deleteRepeatRunnable = new Runnable() {
             @Override
             public void run() {
-                InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
-                if (ic != null) {
-                    sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
-                }
+                performDelete();
                 handler.postDelayed(this, DELETE_REPEAT_INTERVAL);
             }
         };
@@ -362,10 +408,7 @@ public class SoftKeyboardView extends LinearLayout {
         delKey.setOnTouchListener((v, event) -> {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    InputConnection ic = (icProvider != null) ? icProvider.getInputConnection() : null;
-                    if (ic != null) {
-                        sendKeyEvent(ic, KeyEvent.KEYCODE_DEL);
-                    }
+                    performDelete();
                     handler.postDelayed(deleteRepeatRunnable, DELETE_REPEAT_INITIAL_DELAY);
                     return true;
                 case MotionEvent.ACTION_UP:

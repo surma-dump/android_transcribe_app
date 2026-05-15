@@ -21,6 +21,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -29,8 +30,6 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import java.io.File;
 
 import okhttp3.Call;
 
@@ -69,11 +68,16 @@ public class RustInputMethodService extends InputMethodService {
     private ImageView tabKeyboard;
     private ImageView tabSettings;
     private ScrollView panelSettings;
-    @SuppressWarnings("deprecation")
-    private Switch autoRewriteToggle;
-    @SuppressWarnings("deprecation")
-    private Switch pasteModeToggle;
+    // Field editor views
+    private View panelFieldEditor;
+    private TextView fieldEditorLabel;
+    private EditText fieldEditorInput;
+    private TextView fieldEditorDone;
+    private SoftKeyboardView fieldEditorKeyboard;
+    private String editingFieldKey;
+    private View imeRootView;
     private boolean panelExpanded = false;
+    private boolean fieldEditorActive = false;
     private static final int TAB_KEYBOARD = 0;
     private static final int TAB_HISTORY  = 1;
     private static final int TAB_SETTINGS = 2;
@@ -82,6 +86,9 @@ public class RustInputMethodService extends InputMethodService {
     private static final String PREF_ACTIVE_TAB = "active_tab";
     private static final String PREF_AUTO_REWRITE = "auto_rewrite";
     private static final String PREF_PASTE_MODE = "paste_mode";
+    private static final String PREF_AUTO_RECORD = "auto_record";
+    private static final String PREF_PAUSE_AUDIO = "pause_audio";
+    private static final String PREF_SELECT_TRANSCRIPTION = "select_transcription";
     private int activeTab = TAB_KEYBOARD;
     private TranscriptHistoryStore historyStore;
     private HistoryAdapter historyAdapter;
@@ -141,6 +148,7 @@ public class RustInputMethodService extends InputMethodService {
         Log.d(TAG, "onCreateInputView");
         try {
             View view = getLayoutInflater().inflate(R.layout.ime_layout, null);
+            imeRootView = view;
             int basePaddingBottom = view.getPaddingBottom();
 
             view.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -170,25 +178,55 @@ public class RustInputMethodService extends InputMethodService {
             tabHistory = view.findViewById(R.id.tab_history);
             tabKeyboard = view.findViewById(R.id.tab_keyboard);
             tabSettings = view.findViewById(R.id.tab_settings);
-            autoRewriteToggle = view.findViewById(R.id.setting_auto_rewrite_toggle);
-            pasteModeToggle = view.findViewById(R.id.setting_paste_mode_toggle);
+
+            // Field editor views
+            panelFieldEditor = view.findViewById(R.id.panel_field_editor);
+            fieldEditorLabel = view.findViewById(R.id.field_editor_label);
+            fieldEditorInput = view.findViewById(R.id.field_editor_input);
+            fieldEditorDone = view.findViewById(R.id.field_editor_done);
+            fieldEditorKeyboard = view.findViewById(R.id.field_editor_keyboard);
+            if (fieldEditorKeyboard != null && fieldEditorInput != null) {
+                fieldEditorKeyboard.setDirectTarget(fieldEditorInput);
+            }
+            if (fieldEditorDone != null) {
+                fieldEditorDone.setOnClickListener(v2 -> finishFieldEditor());
+            }
 
             historyAdapter = new HistoryAdapter(this);
             historyList.setAdapter(historyAdapter);
 
-            // Restore settings toggles from prefs.
+            // Wire all toggle settings
             SharedPreferences uiPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            if (autoRewriteToggle != null) {
-                autoRewriteToggle.setChecked(uiPrefs.getBoolean(PREF_AUTO_REWRITE, false));
-                autoRewriteToggle.setOnCheckedChangeListener((btn, checked) ->
-                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                .edit().putBoolean(PREF_AUTO_REWRITE, checked).apply());
-            }
-            if (pasteModeToggle != null) {
-                pasteModeToggle.setChecked(uiPrefs.getBoolean(PREF_PASTE_MODE, false));
-                pasteModeToggle.setOnCheckedChangeListener((btn, checked) ->
-                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                .edit().putBoolean(PREF_PASTE_MODE, checked).apply());
+            wireToggleSetting(view, R.id.setting_auto_rewrite_row,
+                    R.string.setting_auto_rewrite, R.string.setting_auto_rewrite_desc,
+                    PREF_AUTO_REWRITE, uiPrefs);
+            wireToggleSetting(view, R.id.setting_paste_mode_row,
+                    R.string.setting_paste_mode, R.string.setting_paste_mode_desc,
+                    PREF_PASTE_MODE, uiPrefs);
+            wireToggleSetting(view, R.id.setting_auto_record_row,
+                    R.string.setting_auto_record, R.string.setting_auto_record_desc,
+                    PREF_AUTO_RECORD, uiPrefs);
+            wireToggleSetting(view, R.id.setting_pause_audio_row,
+                    R.string.setting_pause_audio, R.string.setting_pause_audio_desc,
+                    PREF_PAUSE_AUDIO, uiPrefs);
+            wireToggleSetting(view, R.id.setting_select_transcription_row,
+                    R.string.setting_select_transcription, R.string.setting_select_transcription_desc,
+                    PREF_SELECT_TRANSCRIPTION, uiPrefs);
+
+            // Wire LLM text settings
+            wireTextSetting(view, R.id.setting_llm_base_url_row,
+                    R.string.llm_base_url, "llm_base_url", false);
+            wireTextSetting(view, R.id.setting_llm_model_row,
+                    R.string.llm_model, "llm_model", false);
+            wireTextSetting(view, R.id.setting_llm_api_key_row,
+                    R.string.llm_api_key, "llm_api_key", true);
+            wireTextSetting(view, R.id.setting_llm_instructions_row,
+                    R.string.llm_instructions, "llm_instructions", false);
+
+            // Wire LLM Test button
+            View llmTestBtn = view.findViewById(R.id.btn_llm_test);
+            if (llmTestBtn != null) {
+                llmTestBtn.setOnClickListener(v2 -> startLlmTestConnection());
             }
 
             togglePanelButton.setOnClickListener(v -> togglePanel());
@@ -305,7 +343,8 @@ public class RustInputMethodService extends InputMethodService {
     public void onWindowShown() {
         super.onWindowShown();
         restorePanelState();
-        if (!isRecording && new File(getFilesDir(), "auto_record").exists()) {
+        if (!isRecording && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_RECORD, false)) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
                 if (isPauseAudioEnabled()) {
@@ -324,6 +363,9 @@ public class RustInputMethodService extends InputMethodService {
         super.onWindowHidden();
         finishSpaceTouch(false);
         cancelRewrite(false);
+        if (fieldEditorActive) {
+            finishFieldEditor();
+        }
         collapsePanel();
         clearInputSessionState();
         if (isRecording) {
@@ -702,6 +744,10 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private void switchTab(int tab) {
+        if (fieldEditorActive) {
+            finishFieldEditor();
+            if (tab == TAB_SETTINGS) return; // finishFieldEditor already shows settings
+        }
         if (activeTab == tab) return;
         activeTab = tab;
         applyTabVisibility();
@@ -716,6 +762,7 @@ public class RustInputMethodService extends InputMethodService {
         if (panelHistory  != null) panelHistory.setVisibility(showHistory   ? View.VISIBLE : View.GONE);
         if (panelKeyboard != null) panelKeyboard.setVisibility(showKeyboard ? View.VISIBLE : View.GONE);
         if (panelSettings != null) panelSettings.setVisibility(showSettings ? View.VISIBLE : View.GONE);
+        if (panelFieldEditor != null) panelFieldEditor.setVisibility(View.GONE);
 
         if (tabHistory  != null) tabHistory.setBackgroundResource(showHistory   ? R.drawable.bg_tab_selected : 0);
         if (tabKeyboard != null) tabKeyboard.setBackgroundResource(showKeyboard ? R.drawable.bg_tab_selected : 0);
@@ -736,6 +783,205 @@ public class RustInputMethodService extends InputMethodService {
         if (historyList != null) {
             historyList.setVisibility(entries.isEmpty() ? View.GONE : View.VISIBLE);
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void wireToggleSetting(View root, int rowId, int titleRes, int descRes,
+                                    String prefKey, SharedPreferences prefs) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView title = row.findViewById(R.id.setting_title);
+        TextView desc = row.findViewById(R.id.setting_desc);
+        Switch toggle = row.findViewById(R.id.setting_toggle);
+        if (title != null) title.setText(titleRes);
+        if (desc != null) desc.setText(descRes);
+        if (toggle != null) {
+            toggle.setChecked(prefs.getBoolean(prefKey, false));
+            toggle.setOnCheckedChangeListener((btn, checked) ->
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                            .edit().putBoolean(prefKey, checked).apply());
+        }
+    }
+
+    private void wireTextSetting(View root, int rowId, int titleRes,
+                                  String fieldKey, boolean masked) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView title = row.findViewById(R.id.setting_title);
+        TextView value = row.findViewById(R.id.setting_value);
+        if (title != null) title.setText(titleRes);
+        updateTextSettingDisplay(value, fieldKey, masked);
+        row.setOnClickListener(v -> openFieldEditor(titleRes, fieldKey, masked));
+    }
+
+    private void updateTextSettingDisplay(TextView valueView, String fieldKey, boolean masked) {
+        if (valueView == null) return;
+        String current = readLlmField(fieldKey);
+        if (current == null || current.isEmpty()) {
+            valueView.setText(R.string.setting_value_not_set);
+        } else if (masked) {
+            valueView.setText(R.string.setting_value_hidden);
+        } else {
+            valueView.setText(current);
+        }
+    }
+
+    private String readLlmField(String fieldKey) {
+        switch (fieldKey) {
+            case "llm_base_url": {
+                LlmSettings s = llmSettingsStore.read();
+                return s.baseUrl;
+            }
+            case "llm_model": {
+                LlmSettings s = llmSettingsStore.read();
+                return s.model;
+            }
+            case "llm_api_key": {
+                LlmSettings s = llmSettingsStore.read();
+                return s.apiKey;
+            }
+            case "llm_instructions": {
+                LlmSettings s = llmSettingsStore.read();
+                return s.extraInstructions;
+            }
+            default:
+                return "";
+        }
+    }
+
+    private void saveLlmField(String fieldKey, String value) {
+        LlmSettings current = llmSettingsStore.read();
+        LlmSettings updated;
+        switch (fieldKey) {
+            case "llm_base_url":
+                updated = new LlmSettings(value, current.apiKey, current.model, current.extraInstructions);
+                break;
+            case "llm_model":
+                updated = new LlmSettings(current.baseUrl, current.apiKey, value, current.extraInstructions);
+                break;
+            case "llm_api_key":
+                updated = new LlmSettings(current.baseUrl, value, current.model, current.extraInstructions);
+                break;
+            case "llm_instructions":
+                updated = new LlmSettings(current.baseUrl, current.apiKey, current.model, value);
+                break;
+            default:
+                return;
+        }
+        llmSettingsStore.save(updated);
+    }
+
+    private void openFieldEditor(int titleRes, String fieldKey, boolean masked) {
+        if (panelFieldEditor == null || fieldEditorInput == null || fieldEditorLabel == null) return;
+
+        editingFieldKey = fieldKey;
+        fieldEditorActive = true;
+        fieldEditorLabel.setText(titleRes);
+
+        // Load current value
+        String currentValue = readLlmField(fieldKey);
+        fieldEditorInput.setText(currentValue != null ? currentValue : "");
+        if (fieldEditorInput.getText() != null) {
+            fieldEditorInput.setSelection(fieldEditorInput.getText().length());
+        }
+
+        // Expand panel taller for editing
+        if (expandedPanel != null) {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int editorHeight = (int) (dm.heightPixels * 0.55);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) expandedPanel.getLayoutParams();
+            lp.height = editorHeight;
+            expandedPanel.setLayoutParams(lp);
+        }
+
+        // Show field editor, hide other panels
+        panelFieldEditor.setVisibility(View.VISIBLE);
+        if (panelSettings != null) panelSettings.setVisibility(View.GONE);
+        if (panelHistory != null) panelHistory.setVisibility(View.GONE);
+        if (panelKeyboard != null) panelKeyboard.setVisibility(View.GONE);
+    }
+
+    private void finishFieldEditor() {
+        if (editingFieldKey != null && fieldEditorInput != null) {
+            String value = fieldEditorInput.getText().toString();
+            saveLlmField(editingFieldKey, value);
+        }
+
+        fieldEditorActive = false;
+        editingFieldKey = null;
+
+        if (panelFieldEditor != null) {
+            panelFieldEditor.setVisibility(View.GONE);
+        }
+
+        // Restore panel height
+        if (expandedPanel != null) {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int panelHeight = dm.heightPixels / 3;
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) expandedPanel.getLayoutParams();
+            lp.height = panelHeight;
+            expandedPanel.setLayoutParams(lp);
+        }
+
+        // Refresh the text setting displays and show settings panel
+        refreshTextSettingDisplays();
+        switchTab(TAB_SETTINGS);
+    }
+
+    private void refreshTextSettingDisplays() {
+        if (imeRootView == null) return;
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_base_url_row, "llm_base_url", false);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_model_row, "llm_model", false);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_api_key_row, "llm_api_key", true);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_instructions_row, "llm_instructions", false);
+    }
+
+    private void refreshOneTextSetting(View root, int rowId, String fieldKey, boolean masked) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView value = row.findViewById(R.id.setting_value);
+        updateTextSettingDisplay(value, fieldKey, masked);
+    }
+
+
+
+    private void startLlmTestConnection() {
+        LlmSettings settings;
+        try {
+            settings = llmSettingsStore.read();
+        } catch (RuntimeException e) {
+            Toast.makeText(this, R.string.toast_llm_settings_error, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!settings.hasRequiredFields()) {
+            Toast.makeText(this, R.string.toast_rewrite_no_llm_config, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Toast.makeText(this, R.string.btn_llm_testing, Toast.LENGTH_SHORT).show();
+        openAiChatClient.testConnectionAsync(settings, new OpenAiChatClient.Callback() {
+            @Override
+            public void onSuccess(String text) {
+                mainHandler.post(() ->
+                    Toast.makeText(RustInputMethodService.this, R.string.toast_llm_test_success, Toast.LENGTH_SHORT).show());
+            }
+
+            @Override
+            public void onFailure(String message, Throwable error) {
+                mainHandler.post(() -> {
+                    String msg = getString(R.string.toast_llm_test_failure);
+                    if (message != null && !message.isEmpty()) msg = msg + ": " + message;
+                    Toast.makeText(RustInputMethodService.this, msg, Toast.LENGTH_LONG).show();
+                });
+            }
+
+            @Override
+            public void onCanceled() {
+                mainHandler.post(() ->
+                    Toast.makeText(RustInputMethodService.this, R.string.toast_llm_test_canceled, Toast.LENGTH_SHORT).show());
+            }
+        });
     }
 
     private void finishSpaceTouch(boolean shouldCommitSpace) {
@@ -1123,7 +1369,8 @@ public class RustInputMethodService extends InputMethodService {
         }
 
         if (selectAfterCommit && !isPasteModeEnabled()
-                && new File(getFilesDir(), "select_transcription").exists()) {
+                && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getBoolean(PREF_SELECT_TRANSCRIPTION, false)) {
             ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
             if (et != null) {
                 int end = et.selectionStart;
@@ -1144,7 +1391,8 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private boolean isPauseAudioEnabled() {
-        return new File(getFilesDir(), "pause_audio").exists();
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_PAUSE_AUDIO, false);
     }
 
     private boolean isAutoRewriteEnabled() {

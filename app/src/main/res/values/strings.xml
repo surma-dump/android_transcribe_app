@@ -69,4 +69,9 @@
 
     <string name="toast_rewrite_no_network">No internet connection</string>
     <string name="toast_rewrite_no_llm_config">LLM not configured</string>
+
+    <string name="field_editor_done">Done</string>
+    <string name="main_settings_hint">All settings are now in the keyboard. Expand the keyboard panel and tap the settings tab to configure voice input, AI rewrite, and LLM connection.</string>
+    <string name="setting_value_not_set">(not set)</string>
+    <string name="setting_value_hidden">••••••</string>
 </resources>
