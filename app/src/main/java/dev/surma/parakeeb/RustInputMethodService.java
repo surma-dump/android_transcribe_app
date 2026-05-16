@@ -1170,7 +1170,7 @@ public class RustInputMethodService extends InputMethodService {
                 LlmSettings settings = checkRewritePreconditions();
                 if (settings == null) {
                     // Can't rewrite — fall back to committing raw text.
-                    commitTranscription(text, true);
+                    commitTranscription(text);
                     updateRecordButtonUI(false);
                     if (pendingSendAfterTranscription) {
                         pendingSendAfterTranscription = false;
@@ -1189,7 +1189,7 @@ public class RustInputMethodService extends InputMethodService {
                         mainHandler.post(() -> {
                             isRewriting = false;
                             updateUiState();
-                            commitTranscription(rewritten, false);
+                            commitTranscription(rewritten);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1204,7 +1204,7 @@ public class RustInputMethodService extends InputMethodService {
                             updateUiState();
                             showRewriteFailure(message);
                             // Fall back to committing raw text.
-                            commitTranscription(text, true);
+                            commitTranscription(text);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1218,7 +1218,7 @@ public class RustInputMethodService extends InputMethodService {
                             isRewriting = false;
                             updateUiState();
                             // Fall back to committing raw text.
-                            commitTranscription(text, true);
+                            commitTranscription(text);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1229,7 +1229,7 @@ public class RustInputMethodService extends InputMethodService {
                 // Store the call so it can be canceled if the keyboard hides.
                 inFlightRewriteCall = call;
             } else {
-                commitTranscription(text, true);
+                commitTranscription(text);
                 updateRecordButtonUI(false);
                 if (pendingSendAfterTranscription) {
                     pendingSendAfterTranscription = false;
@@ -1239,7 +1239,7 @@ public class RustInputMethodService extends InputMethodService {
         });
     }
 
-    private void commitTranscription(String text, boolean selectAfterCommit) {
+    private void commitTranscription(String text) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
 
@@ -1261,7 +1261,7 @@ public class RustInputMethodService extends InputMethodService {
             ic.commitText(committed, 1);
         }
 
-        if (selectAfterCommit && !isPasteModeEnabled()
+        if (!isPasteModeEnabled()
                 && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .getBoolean(PREF_SELECT_TRANSCRIPTION, false)) {
             ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
