@@ -26,7 +26,7 @@ public class OpenAiChatClientTest {
 
         try {
             OpenAiChatClient client = new OpenAiChatClient(new OkHttpClient());
-            LlmSettings settings = new LlmSettings(server.url("/").toString(), "secret-key", "demo-model", "remove filler words");
+            LlmSettings settings = new LlmSettings(server.url("/").toString(), "secret-key", "demo-model", "");
             CountDownLatch latch = new CountDownLatch(1);
             AtomicReference<String> success = new AtomicReference<>();
             AtomicReference<String> failure = new AtomicReference<>();

@@ -29,6 +29,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Field editor dialog for IME settings -->
+        <activity
+            android:name=".FieldEditorActivity"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <!-- Live Subtitles Activity (for permissions) -->
         <activity
             android:name=".LiveSubtitleActivity"

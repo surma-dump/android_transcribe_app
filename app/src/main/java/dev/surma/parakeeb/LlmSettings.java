@@ -4,13 +4,13 @@ final class LlmSettings {
     final String baseUrl;
     final String apiKey;
     final String model;
-    final String extraInstructions;
+    final String systemPrompt;
 
-    LlmSettings(String baseUrl, String apiKey, String model, String extraInstructions) {
+    LlmSettings(String baseUrl, String apiKey, String model, String systemPrompt) {
         this.baseUrl = normalize(baseUrl);
         this.apiKey = safe(apiKey).trim();
         this.model = safe(model).trim();
-        this.extraInstructions = safe(extraInstructions).trim();
+        this.systemPrompt = safe(systemPrompt).trim();
     }
 
     boolean hasRequiredFields() {

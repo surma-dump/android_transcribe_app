@@ -21,6 +21,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.content.Intent;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -29,8 +30,6 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import java.io.File;
 
 import okhttp3.Call;
 
@@ -69,10 +68,7 @@ public class RustInputMethodService extends InputMethodService {
     private ImageView tabKeyboard;
     private ImageView tabSettings;
     private ScrollView panelSettings;
-    @SuppressWarnings("deprecation")
-    private Switch autoRewriteToggle;
-    @SuppressWarnings("deprecation")
-    private Switch pasteModeToggle;
+    private View imeRootView;
     private boolean panelExpanded = false;
     private static final int TAB_KEYBOARD = 0;
     private static final int TAB_HISTORY  = 1;
@@ -82,6 +78,9 @@ public class RustInputMethodService extends InputMethodService {
     private static final String PREF_ACTIVE_TAB = "active_tab";
     private static final String PREF_AUTO_REWRITE = "auto_rewrite";
     private static final String PREF_PASTE_MODE = "paste_mode";
+    private static final String PREF_AUTO_RECORD = "auto_record";
+    private static final String PREF_PAUSE_AUDIO = "pause_audio";
+    private static final String PREF_SELECT_TRANSCRIPTION = "select_transcription";
     private int activeTab = TAB_KEYBOARD;
     private TranscriptHistoryStore historyStore;
     private HistoryAdapter historyAdapter;
@@ -141,6 +140,7 @@ public class RustInputMethodService extends InputMethodService {
         Log.d(TAG, "onCreateInputView");
         try {
             View view = getLayoutInflater().inflate(R.layout.ime_layout, null);
+            imeRootView = view;
             int basePaddingBottom = view.getPaddingBottom();
 
             view.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -170,25 +170,42 @@ public class RustInputMethodService extends InputMethodService {
             tabHistory = view.findViewById(R.id.tab_history);
             tabKeyboard = view.findViewById(R.id.tab_keyboard);
             tabSettings = view.findViewById(R.id.tab_settings);
-            autoRewriteToggle = view.findViewById(R.id.setting_auto_rewrite_toggle);
-            pasteModeToggle = view.findViewById(R.id.setting_paste_mode_toggle);
 
             historyAdapter = new HistoryAdapter(this);
             historyList.setAdapter(historyAdapter);
 
-            // Restore settings toggles from prefs.
+            // Wire all toggle settings
             SharedPreferences uiPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            if (autoRewriteToggle != null) {
-                autoRewriteToggle.setChecked(uiPrefs.getBoolean(PREF_AUTO_REWRITE, false));
-                autoRewriteToggle.setOnCheckedChangeListener((btn, checked) ->
-                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                .edit().putBoolean(PREF_AUTO_REWRITE, checked).apply());
-            }
-            if (pasteModeToggle != null) {
-                pasteModeToggle.setChecked(uiPrefs.getBoolean(PREF_PASTE_MODE, false));
-                pasteModeToggle.setOnCheckedChangeListener((btn, checked) ->
-                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                .edit().putBoolean(PREF_PASTE_MODE, checked).apply());
+            wireToggleSetting(view, R.id.setting_auto_rewrite_row,
+                    R.string.setting_auto_rewrite, R.string.setting_auto_rewrite_desc,
+                    PREF_AUTO_REWRITE, uiPrefs);
+            wireToggleSetting(view, R.id.setting_paste_mode_row,
+                    R.string.setting_paste_mode, R.string.setting_paste_mode_desc,
+                    PREF_PASTE_MODE, uiPrefs);
+            wireToggleSetting(view, R.id.setting_auto_record_row,
+                    R.string.setting_auto_record, R.string.setting_auto_record_desc,
+                    PREF_AUTO_RECORD, uiPrefs);
+            wireToggleSetting(view, R.id.setting_pause_audio_row,
+                    R.string.setting_pause_audio, R.string.setting_pause_audio_desc,
+                    PREF_PAUSE_AUDIO, uiPrefs);
+            wireToggleSetting(view, R.id.setting_select_transcription_row,
+                    R.string.setting_select_transcription, R.string.setting_select_transcription_desc,
+                    PREF_SELECT_TRANSCRIPTION, uiPrefs);
+
+            // Wire LLM text settings
+            wireTextSetting(view, R.id.setting_llm_base_url_row,
+                    R.string.llm_base_url, "llm_base_url", false, false);
+            wireTextSetting(view, R.id.setting_llm_model_row,
+                    R.string.llm_model, "llm_model", false, false);
+            wireTextSetting(view, R.id.setting_llm_api_key_row,
+                    R.string.llm_api_key, "llm_api_key", true, false);
+            wireTextSetting(view, R.id.setting_llm_system_prompt_row,
+                    R.string.llm_system_prompt, "llm_system_prompt", false, true);
+
+            // Wire LLM Test button
+            View llmTestBtn = view.findViewById(R.id.btn_llm_test);
+            if (llmTestBtn != null) {
+                llmTestBtn.setOnClickListener(v2 -> startLlmTestConnection());
             }
 
             togglePanelButton.setOnClickListener(v -> togglePanel());
@@ -305,7 +322,9 @@ public class RustInputMethodService extends InputMethodService {
     public void onWindowShown() {
         super.onWindowShown();
         restorePanelState();
-        if (!isRecording && new File(getFilesDir(), "auto_record").exists()) {
+        refreshTextSettingDisplays();
+        if (!isRecording && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_RECORD, false)) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
                 if (isPauseAudioEnabled()) {
@@ -716,7 +735,6 @@ public class RustInputMethodService extends InputMethodService {
         if (panelHistory  != null) panelHistory.setVisibility(showHistory   ? View.VISIBLE : View.GONE);
         if (panelKeyboard != null) panelKeyboard.setVisibility(showKeyboard ? View.VISIBLE : View.GONE);
         if (panelSettings != null) panelSettings.setVisibility(showSettings ? View.VISIBLE : View.GONE);
-
         if (tabHistory  != null) tabHistory.setBackgroundResource(showHistory   ? R.drawable.bg_tab_selected : 0);
         if (tabKeyboard != null) tabKeyboard.setBackgroundResource(showKeyboard ? R.drawable.bg_tab_selected : 0);
         if (tabSettings != null) tabSettings.setBackgroundResource(showSettings ? R.drawable.bg_tab_selected : 0);
@@ -736,6 +754,127 @@ public class RustInputMethodService extends InputMethodService {
         if (historyList != null) {
             historyList.setVisibility(entries.isEmpty() ? View.GONE : View.VISIBLE);
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void wireToggleSetting(View root, int rowId, int titleRes, int descRes,
+                                    String prefKey, SharedPreferences prefs) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView title = row.findViewById(R.id.setting_title);
+        TextView desc = row.findViewById(R.id.setting_desc);
+        Switch toggle = row.findViewById(R.id.setting_toggle);
+        if (title != null) title.setText(titleRes);
+        if (desc != null) desc.setText(descRes);
+        if (toggle != null) {
+            toggle.setChecked(prefs.getBoolean(prefKey, false));
+            toggle.setOnCheckedChangeListener((btn, checked) ->
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                            .edit().putBoolean(prefKey, checked).apply());
+        }
+    }
+
+    private void wireTextSetting(View root, int rowId, int titleRes,
+                                  String fieldKey, boolean masked, boolean isSystemPrompt) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView title = row.findViewById(R.id.setting_title);
+        TextView value = row.findViewById(R.id.setting_value);
+        if (title != null) title.setText(titleRes);
+        updateTextSettingDisplay(value, fieldKey, masked);
+        row.setOnClickListener(v -> launchFieldEditor(titleRes, fieldKey, isSystemPrompt));
+    }
+
+    private void updateTextSettingDisplay(TextView valueView, String fieldKey, boolean masked) {
+        if (valueView == null) return;
+        String current = readLlmField(fieldKey);
+        if (current == null || current.isEmpty()) {
+            if ("llm_system_prompt".equals(fieldKey)) {
+                valueView.setText(R.string.setting_value_default);
+            } else {
+                valueView.setText(R.string.setting_value_not_set);
+            }
+        } else if (masked) {
+            valueView.setText(R.string.setting_value_hidden);
+        } else {
+            valueView.setText(current);
+        }
+    }
+
+    private String readLlmField(String fieldKey) {
+        LlmSettings s = llmSettingsStore.read();
+        switch (fieldKey) {
+            case "llm_base_url": return s.baseUrl;
+            case "llm_model": return s.model;
+            case "llm_api_key": return s.apiKey;
+            case "llm_system_prompt": return s.systemPrompt;
+            default: return "";
+        }
+    }
+
+    private void launchFieldEditor(int titleRes, String fieldKey, boolean isSystemPrompt) {
+        Intent intent = new Intent(this, FieldEditorActivity.class);
+        intent.putExtra(FieldEditorActivity.EXTRA_FIELD_KEY, fieldKey);
+        intent.putExtra(FieldEditorActivity.EXTRA_TITLE, getString(titleRes));
+        intent.putExtra(FieldEditorActivity.EXTRA_IS_SYSTEM_PROMPT, isSystemPrompt);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+
+    private void refreshTextSettingDisplays() {
+        if (imeRootView == null) return;
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_base_url_row, "llm_base_url", false);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_model_row, "llm_model", false);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_api_key_row, "llm_api_key", true);
+        refreshOneTextSetting(imeRootView, R.id.setting_llm_system_prompt_row, "llm_system_prompt", false);
+    }
+
+    private void refreshOneTextSetting(View root, int rowId, String fieldKey, boolean masked) {
+        View row = root.findViewById(rowId);
+        if (row == null) return;
+        TextView value = row.findViewById(R.id.setting_value);
+        updateTextSettingDisplay(value, fieldKey, masked);
+    }
+
+
+
+    private void startLlmTestConnection() {
+        LlmSettings settings;
+        try {
+            settings = llmSettingsStore.read();
+        } catch (RuntimeException e) {
+            Toast.makeText(this, R.string.toast_llm_settings_error, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!settings.hasRequiredFields()) {
+            Toast.makeText(this, R.string.toast_rewrite_no_llm_config, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Toast.makeText(this, R.string.btn_llm_testing, Toast.LENGTH_SHORT).show();
+        openAiChatClient.testConnectionAsync(settings, new OpenAiChatClient.Callback() {
+            @Override
+            public void onSuccess(String text) {
+                mainHandler.post(() ->
+                    Toast.makeText(RustInputMethodService.this, R.string.toast_llm_test_success, Toast.LENGTH_SHORT).show());
+            }
+
+            @Override
+            public void onFailure(String message, Throwable error) {
+                mainHandler.post(() -> {
+                    String msg = getString(R.string.toast_llm_test_failure);
+                    if (message != null && !message.isEmpty()) msg = msg + ": " + message;
+                    Toast.makeText(RustInputMethodService.this, msg, Toast.LENGTH_LONG).show();
+                });
+            }
+
+            @Override
+            public void onCanceled() {
+                mainHandler.post(() ->
+                    Toast.makeText(RustInputMethodService.this, R.string.toast_llm_test_canceled, Toast.LENGTH_SHORT).show());
+            }
+        });
     }
 
     private void finishSpaceTouch(boolean shouldCommitSpace) {
@@ -1031,7 +1170,7 @@ public class RustInputMethodService extends InputMethodService {
                 LlmSettings settings = checkRewritePreconditions();
                 if (settings == null) {
                     // Can't rewrite — fall back to committing raw text.
-                    commitTranscription(text, true);
+                    commitTranscription(text);
                     updateRecordButtonUI(false);
                     if (pendingSendAfterTranscription) {
                         pendingSendAfterTranscription = false;
@@ -1050,7 +1189,7 @@ public class RustInputMethodService extends InputMethodService {
                         mainHandler.post(() -> {
                             isRewriting = false;
                             updateUiState();
-                            commitTranscription(rewritten, false);
+                            commitTranscription(rewritten);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1065,7 +1204,7 @@ public class RustInputMethodService extends InputMethodService {
                             updateUiState();
                             showRewriteFailure(message);
                             // Fall back to committing raw text.
-                            commitTranscription(text, true);
+                            commitTranscription(text);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1079,7 +1218,7 @@ public class RustInputMethodService extends InputMethodService {
                             isRewriting = false;
                             updateUiState();
                             // Fall back to committing raw text.
-                            commitTranscription(text, true);
+                            commitTranscription(text);
                             if (pendingSendAfterTranscription) {
                                 pendingSendAfterTranscription = false;
                                 performImeEnterAction();
@@ -1090,7 +1229,7 @@ public class RustInputMethodService extends InputMethodService {
                 // Store the call so it can be canceled if the keyboard hides.
                 inFlightRewriteCall = call;
             } else {
-                commitTranscription(text, true);
+                commitTranscription(text);
                 updateRecordButtonUI(false);
                 if (pendingSendAfterTranscription) {
                     pendingSendAfterTranscription = false;
@@ -1100,7 +1239,7 @@ public class RustInputMethodService extends InputMethodService {
         });
     }
 
-    private void commitTranscription(String text, boolean selectAfterCommit) {
+    private void commitTranscription(String text) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
 
@@ -1122,8 +1261,9 @@ public class RustInputMethodService extends InputMethodService {
             ic.commitText(committed, 1);
         }
 
-        if (selectAfterCommit && !isPasteModeEnabled()
-                && new File(getFilesDir(), "select_transcription").exists()) {
+        if (!isPasteModeEnabled()
+                && getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getBoolean(PREF_SELECT_TRANSCRIPTION, false)) {
             ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
             if (et != null) {
                 int end = et.selectionStart;
@@ -1144,7 +1284,8 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private boolean isPauseAudioEnabled() {
-        return new File(getFilesDir(), "pause_audio").exists();
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_PAUSE_AUDIO, false);
     }
 
     private boolean isAutoRewriteEnabled() {
